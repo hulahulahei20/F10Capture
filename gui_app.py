@@ -201,29 +201,86 @@ class SettingsWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("设置")
-        self.setFixedSize(450, 350) # 固定窗口大小
+        self.setFixedSize(600, 450) # 调整固定窗口大小，方便布局
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint) # 窗口置顶
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.layout = QVBoxLayout(self.central_widget)
-        self.layout.setContentsMargins(15, 15, 15, 15)
-        self.layout.setSpacing(15)
+        self.layout.setContentsMargins(20, 20, 20, 20) # 增加边距
+        self.layout.setSpacing(20) # 增加间距
+
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f0f2f5; /* 浅灰色背景 */
+            }
+            QFrame {
+                background-color: #ffffff; /* 白色背景 */
+                border: 1px solid #e0e0e0; /* 浅边框 */
+                border-radius: 8px; /* 圆角 */
+                padding: 15px; /* 内部填充 */
+            }
+            QLabel {
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 14px;
+                color: #333333; /* 深灰色字体 */
+            }
+            QLabel#current_key_label, QLabel#current_path_label {
+                font-weight: bold;
+                color: #007bff; /* 蓝色强调色 */
+            }
+            QLineEdit {
+                border: 1px solid #cccccc; /* 浅灰色边框 */
+                border-radius: 5px; /* 圆角 */
+                padding: 8px; /* 内部填充 */
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 13px;
+                color: #555555;
+                background-color: #fdfdfd;
+            }
+            QLineEdit:read-only {
+                background-color: #f5f5f5; /* 只读状态的背景色 */
+            }
+            QPushButton {
+                background-color: #007bff; /* 蓝色背景 */
+                color: white; /* 白色字体 */
+                border: none;
+                border-radius: 5px; /* 圆角 */
+                padding: 8px 15px; /* 内部填充 */
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #0056b3; /* 悬停时的深蓝色 */
+            }
+            QPushButton:pressed {
+                background-color: #004085; /* 按下时的更深蓝色 */
+            }
+            QPushButton#clear_button { /* 为清除按钮设置不同样式 */
+                background-color: #dc3545; /* 红色 */
+            }
+            QPushButton#clear_button:hover {
+                background-color: #c82333;
+            }
+            QPushButton#clear_button:pressed {
+                background-color: #bd2130;
+            }
+        """)
 
         self.init_ui()
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint) # 窗口置顶
 
     def init_ui(self):
         # 截图按键设置
         key_frame = QFrame()
-        key_frame.setFrameShape(QFrame.StyledPanel)
-        key_frame.setFrameShadow(QFrame.Raised)
+        key_frame.setObjectName("key_frame") # 添加对象名以便QSS选择器使用
         key_layout = QVBoxLayout(key_frame)
-        key_layout.setContentsMargins(10, 10, 10, 10)
-        key_layout.setSpacing(8)
+        key_layout.setContentsMargins(15, 15, 15, 15) # 调整内部边距
+        key_layout.setSpacing(10) # 调整内部间距
 
         key_label_layout = QHBoxLayout()
         self.current_key_label = QLabel(f"当前截图按键: {str(KEYBINDING).replace('Key.', '').replace("'", "")}")
-        self.current_key_label.setStyleSheet("font-weight: bold;")
+        self.current_key_label.setObjectName("current_key_label") # 添加对象名
         key_label_layout.addWidget(self.current_key_label)
         key_label_layout.addStretch()
         key_layout.addLayout(key_label_layout)
@@ -248,15 +305,14 @@ class SettingsWindow(QMainWindow):
 
         # 截图保存路径设置
         path_frame = QFrame()
-        path_frame.setFrameShape(QFrame.StyledPanel)
-        path_frame.setFrameShadow(QFrame.Raised)
+        path_frame.setObjectName("path_frame") # 添加对象名
         path_layout = QVBoxLayout(path_frame)
-        path_layout.setContentsMargins(10, 10, 10, 10)
-        path_layout.setSpacing(8)
+        path_layout.setContentsMargins(15, 15, 15, 15) # 调整内部边距
+        path_layout.setSpacing(10) # 调整内部间距
 
         path_label_layout = QHBoxLayout()
         self.current_path_label = QLabel(f"当前自定义路径: {CUSTOM_SCREENSHOT_DIR if CUSTOM_SCREENSHOT_DIR else '未设置 (使用默认)'}")
-        self.current_path_label.setStyleSheet("font-weight: bold;")
+        self.current_path_label.setObjectName("current_path_label") # 添加对象名
         path_label_layout.addWidget(self.current_path_label)
         path_label_layout.addStretch()
         path_layout.addLayout(path_label_layout)
@@ -274,6 +330,7 @@ class SettingsWindow(QMainWindow):
 
         path_buttons_layout = QHBoxLayout()
         clear_button = QPushButton("清除自定义路径")
+        clear_button.setObjectName("clear_button") # 添加对象名
         clear_button.clicked.connect(self.clear_custom_path)
         path_buttons_layout.addWidget(clear_button)
 
@@ -385,7 +442,21 @@ class F12CaptureApp(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.layout = QVBoxLayout(self.central_widget)
+        self.layout.setContentsMargins(20, 20, 20, 20) # 增加边距
+        self.layout.setSpacing(15) # 增加间距
         self.layout.setAlignment(Qt.AlignCenter)
+
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f0f2f5; /* 浅灰色背景 */
+            }
+            QLabel {
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 15px; /* 稍微大一点的字体 */
+                color: #333333; /* 深灰色字体 */
+                text-align: center;
+            }
+        """)
 
         self.status_label = QLabel("F12截图工具已启动，在后台运行。")
         self.status_label.setAlignment(Qt.AlignCenter)
