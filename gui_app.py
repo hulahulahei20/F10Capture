@@ -489,17 +489,43 @@ class F12CaptureApp(QMainWindow):
         self.tray_icon.setToolTip("F12截图工具")
 
         tray_menu = QMenu()
+        # 美化托盘菜单样式
+        tray_menu.setStyleSheet("""
+            QMenu {
+                background-color: #ffffff; /* 白色背景 */
+                border: 1px solid #e0e0e0; /* 浅灰色边框 */
+                border-radius: 6px; /* 圆角 */
+                padding: 5px; /* 内部填充 */
+            }
+            QMenu::item {
+                padding: 8px 25px 8px 20px; /* 增加内边距 */
+                background-color: transparent;
+                color: #333333; /* 深灰色字体 */
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 13px;
+            }
+            QMenu::item:selected {
+                background-color: #e0f2ff; /* 选中时的浅蓝色背景 */
+                color: #007bff; /* 选中时的蓝色字体 */
+                border-radius: 4px; /* 选中项圆角 */
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #f0f0f0; /* 分隔线颜色 */
+                margin: 5px 0px; /* 分隔线上下间距 */
+            }
+        """)
 
         screenshot_action = QAction("截图", self)
         screenshot_action.triggered.connect(take_screenshot_windows_api)
-        # 设置快捷键，这里需要将pynput的Key对象转换为Qt的QKeySequence
-        # 由于pynput的Key对象不直接对应QKeySequence，这里暂时不设置全局快捷键
-        # 而是依赖pynput的监听器
         tray_menu.addAction(screenshot_action)
 
         settings_action = QAction("设置", self)
         settings_action.triggered.connect(self.open_settings_window)
         tray_menu.addAction(settings_action)
+
+        # 添加一个分隔线
+        tray_menu.addSeparator()
 
         exit_action = QAction("退出", self)
         exit_action.triggered.connect(self.quit_app)
