@@ -60,8 +60,8 @@ def take_screenshot_windows_api():
         # 获取当前屏幕的主进程名称 (此行保留，但其结果不再用于目录名)
         process_name = get_process_name_from_point(current_mouse_x, current_mouse_y)
         
-        # 构建截图保存目录，固定为 F12Capture
-        screenshot_dir = os.path.join(BASE_SCREENSHOT_DIR, "F12Capture")
+        # 构建截图保存目录，使用进程名称
+        screenshot_dir = os.path.join(BASE_SCREENSHOT_DIR, process_name)
         if not os.path.exists(screenshot_dir):
             os.makedirs(screenshot_dir)
 
