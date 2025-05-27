@@ -634,5 +634,5 @@ if __name__ == "__main__":
 
     # 释放互斥量
     win32event.ReleaseMutex(mutex)
-    win32event.CloseHandle(mutex)
+    win32api.CloseHandle(mutex)  # 正确：使用 win32api.CloseHandle
     sys.exit(exit_code)
