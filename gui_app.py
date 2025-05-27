@@ -238,6 +238,9 @@ class SettingsWindow(QMainWindow):
                 color: #555555;
                 background-color: #fdfdfd;
             }
+            QLineEdit:focus {
+                border: 1px solid #007bff; /* 聚焦时边框变为蓝色 */
+            }
             QLineEdit:read-only {
                 background-color: #f5f5f5; /* 只读状态的背景色 */
             }
