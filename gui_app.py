@@ -207,7 +207,7 @@ class SettingsWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.setFixedSize(600, 450) # 调整固定窗口大小，方便布局
-        # self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint) # 窗口置顶
+        self.setWindowFlags(Qt.Window) # 确保窗口显示在任务栏并可最小化
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -445,6 +445,7 @@ class F12CaptureApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("F12截图工具")
         self.setFixedSize(300, 150) # 主窗口可以小一点，因为主要通过托盘操作
+        # self.setWindowFlags(Qt.Window)
         # self.setWindowFlags(Qt.WindowStaysOnTopHint) # 主窗口也置顶
 
         self.central_widget = QWidget()
@@ -567,7 +568,7 @@ class F12CaptureApp(QMainWindow):
 
     def open_settings_window(self):
         if self.settings_window is None:
-            self.settings_window = SettingsWindow(self)
+            self.settings_window = SettingsWindow() # 移除父窗口，使其成为独立的顶级窗口
             self.settings_window.keybinding_changed.connect(self.update_keybinding)
             self.settings_window.path_changed.connect(self.update_path_display)
         self.settings_window.show()
