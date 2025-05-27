@@ -3,4 +3,4 @@ screeninfo
 Pillow
 pywin32
 psutil
-pystray
+PySide6
