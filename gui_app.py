@@ -15,6 +15,7 @@ import configparser
 import sys
 import win32event
 import winerror
+from playsound import playsound # 导入playsound库
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -152,6 +153,12 @@ def take_screenshot_windows_api():
             win32gui.ReleaseDC(hdesktop, desktop_dc)
 
             print(f"截图已保存到: {filename}")
+            # 播放截图音效
+            try:
+                playsound('screenshot_sound.wav')
+                print("截图音效已播放。")
+            except Exception as sound_e:
+                print(f"播放截图音效失败: {sound_e}")
         else:
             print("未找到任何显示器信息，无法截图。")
 

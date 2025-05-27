@@ -23,6 +23,7 @@ if %errorlevel% neq 0 (
 )
 
 echo 正在安装或更新依赖...
+pip install --upgrade wheel
 pip install -r requirements.txt
 if %errorlevel% neq 0 (
     echo 依赖安装失败。请检查您的网络连接或requirements.txt文件。

@@ -4,3 +4,4 @@ Pillow
 pywin32
 psutil
 PySide6
+playsound
