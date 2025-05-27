@@ -13,6 +13,8 @@ import win32process
 import psutil
 import configparser
 import sys
+import win32event
+import winerror
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -24,6 +26,9 @@ from PySide6.QtCore import Qt, QThread, Signal, QSettings
 
 # 配置文件路径
 CONFIG_FILE = "config.ini"
+
+# 互斥量名称，用于实现单例模式
+MUTEX_NAME = "F12CaptureAppMutex"
 
 # 截图保存根目录
 BASE_SCREENSHOT_DIR = "ScreenShots"
@@ -475,11 +480,18 @@ class F12CaptureApp(QMainWindow):
 
     def init_tray_icon(self):
         self.tray_icon = QSystemTrayIcon(self)
+        # 尝试从打包路径或当前目录加载图标
+        icon_path = "icon.png"
+        if hasattr(sys, '_MEIPASS'):
+            icon_path = os.path.join(sys._MEIPASS, icon_path)
+            print(f"从 _MEIPASS 加载图标: {icon_path}")
+        else:
+            print(f"从当前目录加载图标: {icon_path}")
+
         try:
-            self.tray_icon.setIcon(QIcon("icon.png"))
-        except Exception:
-            print("无法加载 icon.png，使用默认图标。")
-            # 创建一个默认图标，例如一个简单的蓝色方块
+            self.tray_icon.setIcon(QIcon(icon_path))
+        except Exception as e:
+            print(f"无法加载图标 {icon_path}: {e}，使用默认图标。")
             pixmap = QIcon().fromTheme("applications-other") # 尝试使用系统主题图标
             if pixmap.isNull():
                 # 如果系统主题图标也找不到，则创建一个空白图标
@@ -589,9 +601,30 @@ class F12CaptureApp(QMainWindow):
         event.ignore() # 忽略关闭事件，防止程序退出
 
 if __name__ == "__main__":
+    # 尝试创建命名互斥量
+    mutex = win32event.CreateMutex(None, 1, MUTEX_NAME)
+    last_error = win32api.GetLastError()
+
+    if last_error == winerror.ERROR_ALREADY_EXISTS:
+        # 如果互斥量已存在，说明程序已在运行
+        app = QApplication(sys.argv) # 仍然需要QApplication来显示MessageBox
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("F12截图工具")
+        msg_box.setText("F12截图工具已在运行。")
+        msg_box.setInformativeText("请勿重复启动。")
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.exec()
+        sys.exit(0) # 退出当前实例
+
     load_config() # 在程序启动时加载配置
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False) # 即使所有窗口关闭，也不退出应用（因为有托盘图标）
 
     main_app = F12CaptureApp()
-    sys.exit(app.exec())
+    exit_code = app.exec()
+
+    # 释放互斥量
+    win32event.ReleaseMutex(mutex)
+    win32event.CloseHandle(mutex)
+    sys.exit(exit_code)
