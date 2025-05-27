@@ -15,9 +15,16 @@ import pystray
 import tkinter as tk
 from functools import partial
 import sys # 导入 sys 模块
+import configparser # 导入 configparser 模块
+import tkinter.filedialog # 导入 filedialog 模块
+
+# 配置文件路径
+CONFIG_FILE = "config.ini"
 
 # 截图保存根目录
 BASE_SCREENSHOT_DIR = "ScreenShots"
+# 用户自定义截图目录
+CUSTOM_SCREENSHOT_DIR = ""
 
 # 默认截图按键
 KEYBINDING = keyboard.Key.f12 # 初始设置为F12
@@ -60,10 +67,21 @@ def take_screenshot_windows_api():
         # 获取当前屏幕的主进程名称 (此行保留，但其结果不再用于目录名)
         process_name = get_process_name_from_point(current_mouse_x, current_mouse_y)
         
-        # 构建截图保存目录，使用进程名称
-        screenshot_dir = os.path.join(BASE_SCREENSHOT_DIR, process_name)
-        if not os.path.exists(screenshot_dir):
-            os.makedirs(screenshot_dir)
+        global CUSTOM_SCREENSHOT_DIR
+        
+        # 确定最终的截图保存目录
+        if CUSTOM_SCREENSHOT_DIR and os.path.isdir(CUSTOM_SCREENSHOT_DIR):
+            final_screenshot_base_dir = CUSTOM_SCREENSHOT_DIR
+            print(f"使用自定义截图目录: {final_screenshot_base_dir}")
+        else:
+            final_screenshot_base_dir = BASE_SCREENSHOT_DIR
+            print(f"使用默认截图根目录: {final_screenshot_base_dir}")
+
+        # 构建截图保存目录，使用进程名称作为子目录
+        screenshot_dir = os.path.join(final_screenshot_base_dir, process_name)
+        
+        # 确保目录存在
+        os.makedirs(screenshot_dir, exist_ok=True)
 
         filename = os.path.join(screenshot_dir, f"{timestamp}.png")
 
@@ -152,6 +170,41 @@ def start_keyboard_listener(): # 移除 quit_callback 参数
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()
 
+def load_config():
+    """
+    从配置文件加载设置。
+    """
+    global KEYBINDING, CUSTOM_SCREENSHOT_DIR
+    config = configparser.ConfigParser()
+    if os.path.exists(CONFIG_FILE):
+        config.read(CONFIG_FILE, encoding='utf-8')
+        if 'Settings' in config:
+            if 'keybinding' in config['Settings']:
+                key_str = config['Settings']['keybinding']
+                try:
+                    if hasattr(keyboard.Key, key_str):
+                        KEYBINDING = getattr(keyboard.Key, key_str)
+                    elif len(key_str) == 1:
+                        KEYBINDING = keyboard.KeyCode.from_char(key_str)
+                except Exception as e:
+                    print(f"加载按键绑定失败: {e}")
+            if 'custom_screenshot_dir' in config['Settings']:
+                CUSTOM_SCREENSHOT_DIR = config['Settings']['custom_screenshot_dir']
+                print(f"加载自定义截图目录: {CUSTOM_SCREENSHOT_DIR}")
+
+def save_config():
+    """
+    保存设置到配置文件。
+    """
+    global KEYBINDING, CUSTOM_SCREENSHOT_DIR
+    config = configparser.ConfigParser()
+    config['Settings'] = {}
+    config['Settings']['keybinding'] = str(KEYBINDING).replace('Key.', '').replace("'", "")
+    config['Settings']['custom_screenshot_dir'] = CUSTOM_SCREENSHOT_DIR
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as configfile:
+        config.write(configfile)
+    print("配置已保存。")
+
 def setup_tray_icon(icon):
     """
     设置托盘图标和菜单。
@@ -161,22 +214,26 @@ def setup_tray_icon(icon):
 
 def open_settings_window():
     """
-    打开截图按键设置窗口。
+    打开截图按键和保存路径设置窗口。
     """
-    global KEYBINDING
+    global KEYBINDING, CUSTOM_SCREENSHOT_DIR
     settings_window = tk.Toplevel()
-    settings_window.title("设置截图按键")
-    settings_window.geometry("300x180") # 调整窗口大小以适应更多内容
+    settings_window.title("设置")
+    settings_window.geometry("450x350") # 调整窗口大小以适应更多内容和更好的布局
     settings_window.resizable(False, False)
 
     # 确保窗口在最上层
     settings_window.attributes("-topmost", True)
 
-    current_key_label = tk.Label(settings_window, text=f"当前截图按键: {str(KEYBINDING).replace('Key.', '').replace("'", "")}")
-    current_key_label.pack(pady=10)
+    # 截图按键设置
+    key_frame = tk.LabelFrame(settings_window, text="截图按键设置")
+    key_frame.pack(pady=10, padx=15, fill="x") # 使用pack，但增加padx
 
-    key_entry = tk.Entry(settings_window, width=30)
-    key_entry.pack(pady=5)
+    current_key_label = tk.Label(key_frame, text=f"当前截图按键: {str(KEYBINDING).replace('Key.', '').replace("'", "")}")
+    current_key_label.grid(row=0, column=0, columnspan=3, pady=5, padx=5, sticky="w")
+
+    key_entry = tk.Entry(key_frame, width=30)
+    key_entry.grid(row=1, column=0, pady=2, padx=5, sticky="ew")
     key_entry.insert(0, str(KEYBINDING).replace("Key.", "").replace("'", "")) # 显示当前按键
 
     # 监听按键输入，将第一个按下的键显示在输入框中
@@ -207,30 +264,94 @@ def open_settings_window():
         listener_for_entry = keyboard.Listener(on_press=on_key_press_for_entry)
         listener_for_entry.start()
 
-    listen_button = tk.Button(settings_window, text="点击设置新按键", command=start_listening_for_entry)
-    listen_button.pack(pady=5)
+    listen_button = tk.Button(key_frame, text="点击设置新按键", command=start_listening_for_entry)
+    listen_button.grid(row=1, column=1, pady=2, padx=5, sticky="ew")
 
-    def save_keybinding():
+    def save_keybinding_only():
         global KEYBINDING
         new_key_str = key_entry.get().strip()
         if new_key_str:
             try:
-                # 尝试解析为特殊键
                 if hasattr(keyboard.Key, new_key_str):
                     KEYBINDING = getattr(keyboard.Key, new_key_str)
-                elif len(new_key_str) == 1: # 尝试解析为普通字符
+                elif len(new_key_str) == 1:
                     KEYBINDING = keyboard.KeyCode.from_char(new_key_str)
                 else:
+                    tk.messagebox.showerror("错误", f"无法识别的按键: {new_key_str}")
                     print(f"无法识别的按键: {new_key_str}")
                     return
                 current_key_label.config(text=f"当前截图按键: {str(KEYBINDING).replace('Key.', '').replace("'", "")}")
                 print(f"截图按键已更新为: {KEYBINDING}")
+                save_config() # 保存配置
             except Exception as e:
+                tk.messagebox.showerror("错误", f"保存按键失败: {e}")
                 print(f"保存按键失败: {e}")
-        settings_window.destroy() # 关闭窗口
+        else:
+            tk.messagebox.showwarning("警告", "按键绑定不能为空。")
 
-    save_button = tk.Button(settings_window, text="保存", command=save_keybinding)
-    save_button.pack(pady=10)
+    save_key_button = tk.Button(key_frame, text="保存按键", command=save_keybinding_only)
+    save_key_button.grid(row=1, column=2, pady=2, padx=5, sticky="ew")
+
+    key_frame.grid_columnconfigure(0, weight=1) # 让输入框可以扩展
+
+    # 截图保存路径设置
+    path_frame = tk.LabelFrame(settings_window, text="截图保存路径设置")
+    path_frame.pack(pady=10, padx=15, fill="x") # 使用pack，但增加padx
+
+    current_path_label = tk.Label(path_frame, text=f"当前自定义路径: {CUSTOM_SCREENSHOT_DIR if CUSTOM_SCREENSHOT_DIR else '未设置 (使用默认)'}")
+    current_path_label.grid(row=0, column=0, columnspan=3, pady=5, padx=5, sticky="w")
+
+    path_entry = tk.Entry(path_frame, width=40)
+    path_entry.grid(row=1, column=0, pady=2, padx=5, sticky="ew")
+    # 确保文本框显示当前实际使用的路径，如果自定义路径为空，则显示默认根目录
+    path_entry.insert(0, CUSTOM_SCREENSHOT_DIR if CUSTOM_SCREENSHOT_DIR else os.path.abspath(BASE_SCREENSHOT_DIR))
+
+    def browse_directory():
+        folder_selected = tk.filedialog.askdirectory()
+        if folder_selected:
+            path_entry.delete(0, tk.END)
+            path_entry.insert(0, folder_selected)
+
+    browse_button = tk.Button(path_frame, text="浏览...", command=browse_directory)
+    browse_button.grid(row=1, column=1, pady=2, padx=5, sticky="ew")
+
+    def clear_custom_path():
+        path_entry.delete(0, tk.END)
+        path_entry.insert(0, os.path.abspath(BASE_SCREENSHOT_DIR)) # 清空时显示默认根目录的绝对路径
+        current_path_label.config(text="当前自定义路径: 未设置 (使用默认)")
+        global CUSTOM_SCREENSHOT_DIR
+        CUSTOM_SCREENSHOT_DIR = "" # 清空全局变量
+        save_config() # 保存配置
+        print("自定义截图目录已清除，将使用默认路径。")
+
+    clear_button = tk.Button(path_frame, text="清除自定义路径", command=clear_custom_path)
+    clear_button.grid(row=2, column=0, pady=2, padx=5, sticky="ew")
+
+    def save_path_only():
+        global CUSTOM_SCREENSHOT_DIR
+        new_custom_path = path_entry.get().strip()
+        if new_custom_path:
+            if os.path.isdir(new_custom_path):
+                CUSTOM_SCREENSHOT_DIR = new_custom_path
+                current_path_label.config(text=f"当前自定义路径: {CUSTOM_SCREENSHOT_DIR}")
+                print(f"自定义截图目录已更新为: {CUSTOM_SCREENSHOT_DIR}")
+                save_config() # 保存配置
+            else:
+                tk.messagebox.showerror("错误", f"无效的路径: {new_custom_path}\n请选择一个有效的文件夹。")
+                print(f"无效的自定义路径: {new_custom_path}，将不保存此路径。")
+                # 恢复显示旧的路径，或者清空如果之前就没有
+                path_entry.delete(0, tk.END)
+                path_entry.insert(0, CUSTOM_SCREENSHOT_DIR if CUSTOM_SCREENSHOT_DIR else BASE_SCREENSHOT_DIR)
+        else: # 用户清空了路径，但没有点击“清除”按钮
+            CUSTOM_SCREENSHOT_DIR = ""
+            current_path_label.config(text="当前自定义路径: 未设置 (使用默认)")
+            print("自定义截图目录已清除，将使用默认路径。")
+            save_config() # 保存配置
+
+    save_path_button = tk.Button(path_frame, text="保存路径", command=save_path_only)
+    save_path_button.grid(row=2, column=1, pady=2, padx=5, sticky="ew")
+
+    path_frame.grid_columnconfigure(0, weight=1) # 让路径输入框可以扩展
 
     # 当窗口关闭时，停止监听器
     def on_settings_window_close():
@@ -245,8 +366,10 @@ def open_settings_window():
     settings_window.wait_window() # 等待窗口关闭
 
 def main():
+    load_config() # 在程序启动时加载配置
+
     print("F12截图工具已启动，在后台运行。")
-    print(f"截图将保存到 '{BASE_SCREENSHOT_DIR}/[进程名称]/[日期时间].png' 文件夹。")
+    print(f"截图将保存到 '自定义目录/[进程名称]/[日期时间].png' 或 '{BASE_SCREENSHOT_DIR}/[进程名称]/[日期时间].png' 文件夹。")
     print("程序将显示在系统托盘中。")
     # print("注意：请使用 'python start.bat' 命令运行此脚本。")
 
@@ -276,7 +399,7 @@ def main():
 
     # 创建菜单，并使用 bound_quit_app 作为退出回调
     menu = (pystray.MenuItem('截图 (F12)', take_screenshot_windows_api),
-            pystray.MenuItem('设置截图按键', open_settings_window), # 添加新的菜单项
+            pystray.MenuItem('设置', open_settings_window), # 添加新的菜单项
             pystray.MenuItem('退出', lambda icon_param, item: bound_quit_app()))
 
     # 更新 icon 的菜单
