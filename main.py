@@ -17,7 +17,10 @@ from functools import partial
 import sys # 导入 sys 模块
 
 # 截图保存根目录
-BASE_SCREENSHOT_DIR = "F12Capture"
+BASE_SCREENSHOT_DIR = "ScreenShots"
+
+# 默认截图按键
+KEYBINDING = keyboard.Key.f12 # 初始设置为F12
 
 # 用于控制键盘监听器线程的事件
 stop_listener_event = threading.Event()
@@ -54,11 +57,11 @@ def take_screenshot_windows_api():
         # 获取鼠标当前位置
         current_mouse_x, current_mouse_y = mouse.Controller().position
 
-        # 获取当前屏幕的主进程名称
+        # 获取当前屏幕的主进程名称 (此行保留，但其结果不再用于目录名)
         process_name = get_process_name_from_point(current_mouse_x, current_mouse_y)
         
-        # 构建截图保存目录
-        screenshot_dir = os.path.join(BASE_SCREENSHOT_DIR, process_name)
+        # 构建截图保存目录，固定为 F12Capture
+        screenshot_dir = os.path.join(BASE_SCREENSHOT_DIR, "F12Capture")
         if not os.path.exists(screenshot_dir):
             os.makedirs(screenshot_dir)
 
@@ -125,9 +128,10 @@ def on_press(key):
     """
     处理键盘按下事件。
     """
+    global KEYBINDING
     try:
-        if key == keyboard.Key.f12:
-            print("检测到F12键按下，正在截图当前屏幕...")
+        if key == KEYBINDING:
+            print(f"检测到 {KEYBINDING} 键按下，正在截图当前屏幕...")
             take_screenshot_windows_api()
     except AttributeError:
         pass
@@ -154,6 +158,91 @@ def setup_tray_icon(icon):
     """
     icon.visible = True
     # 托盘图标将在 main 函数中以 detached 模式启动
+
+def open_settings_window():
+    """
+    打开截图按键设置窗口。
+    """
+    global KEYBINDING
+    settings_window = tk.Toplevel()
+    settings_window.title("设置截图按键")
+    settings_window.geometry("300x180") # 调整窗口大小以适应更多内容
+    settings_window.resizable(False, False)
+
+    # 确保窗口在最上层
+    settings_window.attributes("-topmost", True)
+
+    current_key_label = tk.Label(settings_window, text=f"当前截图按键: {str(KEYBINDING).replace('Key.', '').replace("'", "")}")
+    current_key_label.pack(pady=10)
+
+    key_entry = tk.Entry(settings_window, width=30)
+    key_entry.pack(pady=5)
+    key_entry.insert(0, str(KEYBINDING).replace("Key.", "").replace("'", "")) # 显示当前按键
+
+    # 监听按键输入，将第一个按下的键显示在输入框中
+    listener_for_entry = None
+    def on_key_press_for_entry(key):
+        nonlocal listener_for_entry
+        try:
+            key_name = str(key).replace("Key.", "").replace("'", "")
+            key_entry.delete(0, tk.END)
+            key_entry.insert(0, key_name)
+            if listener_for_entry:
+                listener_for_entry.stop() # 停止监听
+        except AttributeError:
+            # 处理特殊键，如Shift, Ctrl等
+            key_name = str(key).replace("Key.", "").replace("'", "")
+            key_entry.delete(0, tk.END)
+            key_entry.insert(0, key_name)
+            if listener_for_entry:
+                listener_for_entry.stop() # 停止监听
+
+    def start_listening_for_entry():
+        nonlocal listener_for_entry
+        key_entry.delete(0, tk.END) # 清空输入框
+        key_entry.insert(0, "按下任意键...")
+        # 确保旧的监听器已停止
+        if listener_for_entry and listener_for_entry.running:
+            listener_for_entry.stop()
+        listener_for_entry = keyboard.Listener(on_press=on_key_press_for_entry)
+        listener_for_entry.start()
+
+    listen_button = tk.Button(settings_window, text="点击设置新按键", command=start_listening_for_entry)
+    listen_button.pack(pady=5)
+
+    def save_keybinding():
+        global KEYBINDING
+        new_key_str = key_entry.get().strip()
+        if new_key_str:
+            try:
+                # 尝试解析为特殊键
+                if hasattr(keyboard.Key, new_key_str):
+                    KEYBINDING = getattr(keyboard.Key, new_key_str)
+                elif len(new_key_str) == 1: # 尝试解析为普通字符
+                    KEYBINDING = keyboard.KeyCode.from_char(new_key_str)
+                else:
+                    print(f"无法识别的按键: {new_key_str}")
+                    return
+                current_key_label.config(text=f"当前截图按键: {str(KEYBINDING).replace('Key.', '').replace("'", "")}")
+                print(f"截图按键已更新为: {KEYBINDING}")
+            except Exception as e:
+                print(f"保存按键失败: {e}")
+        settings_window.destroy() # 关闭窗口
+
+    save_button = tk.Button(settings_window, text="保存", command=save_keybinding)
+    save_button.pack(pady=10)
+
+    # 当窗口关闭时，停止监听器
+    def on_settings_window_close():
+        if listener_for_entry and listener_for_entry.running:
+            listener_for_entry.stop()
+        settings_window.destroy()
+
+    settings_window.protocol("WM_DELETE_WINDOW", on_settings_window_close)
+
+    # 保持窗口在最上层，直到关闭
+    settings_window.grab_set() # 模态窗口
+    settings_window.wait_window() # 等待窗口关闭
 
 def main():
     print("F12截图工具已启动，在后台运行。")
@@ -187,6 +276,7 @@ def main():
 
     # 创建菜单，并使用 bound_quit_app 作为退出回调
     menu = (pystray.MenuItem('截图 (F12)', take_screenshot_windows_api),
+            pystray.MenuItem('设置截图按键', open_settings_window), # 添加新的菜单项
             pystray.MenuItem('退出', lambda icon_param, item: bound_quit_app()))
 
     # 更新 icon 的菜单
