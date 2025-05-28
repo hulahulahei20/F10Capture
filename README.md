@@ -91,7 +91,7 @@ F12Capture/
 
 ### 1.直接启动(普通用户首推！！)
 
-查看release，链接：[release地址](https://github.com/hulahulahei20/F12Capture/releases/tag/1.0)
+查看release，链接：[最新release地址](https://github.com/hulahulahei20/F10Capture/releases/tag/2.0
 
 ### 2. 命令行启动 (推荐开发者调试)
 
