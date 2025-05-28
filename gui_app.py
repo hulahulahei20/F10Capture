@@ -43,12 +43,12 @@ CUSTOM_SCREENSHOT_DIR = ""
 KEYBINDING = keyboard.Key.f10 # 初始设置为F10
 
 
-def get_process_name_from_point(x, y):
+def get_foreground_process_name():
     """
-    根据屏幕坐标获取该位置上活动窗口的进程名称。
+    获取当前最上层（前景）窗口的进程名称。
     """
     try:
-        hwnd = win32gui.WindowFromPoint((x, y))
+        hwnd = win32gui.GetForegroundWindow()
         if hwnd:
             thread_id, process_id = win32process.GetWindowThreadProcessId(hwnd)
             try:
@@ -58,8 +58,8 @@ def get_process_name_from_point(x, y):
                 return "UnknownProcess"
         return "NoActiveWindow"
     except Exception as e:
-        print(f"获取进程名称失败: {e}")
-        return "ErrorProcess"
+        print(f"获取前景进程名称失败: {e}")
+        return "Erro  rProcess"
 
 def take_screenshot_windows_api():
     """
@@ -69,7 +69,7 @@ def take_screenshot_windows_api():
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     current_mouse_x, current_mouse_y = mouse.Controller().position
-    process_name = get_process_name_from_point(current_mouse_x, current_mouse_y)
+    process_name = get_foreground_process_name() # 获取最上层窗口的进程名称
     
     global CUSTOM_SCREENSHOT_DIR
     
