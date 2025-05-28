@@ -243,7 +243,7 @@ class SettingsWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("设置")
-        self.setFixedSize(600, 450) # 调整固定窗口大小，方便布局
+        # 移除 setFixedSize 以允许窗口最大化和调整大小
         self.setWindowFlags(Qt.Window) # 确保窗口显示在任务栏并可最小化
 
         self.central_widget = QWidget()
@@ -483,7 +483,7 @@ class ViewScreenshotsWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("查看截图")
-        self.setFixedSize(800, 600)
+        self.resize(800, 600) # 设置默认大小，但允许用户调整和最大化
         self.setWindowFlags(Qt.Window)
 
         self.central_widget = QWidget()
