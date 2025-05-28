@@ -1,5 +1,17 @@
 @echo off
 chcp 65001 > nul
+
+:: 检查是否以管理员身份运行
+NET SESSION >nul 2>&1
+if %errorlevel% neq 0 (
+    echo 请求管理员权限...
+    powershell -Command "Start-Process cmd -Verb RunAs -ArgumentList '/c \"%~dp0start.bat\"'"
+    exit /b 0
+)
+
+:: 切换到脚本所在目录
+cd /d "%~dp0"
+
 echo 正在检查Python环境...
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
@@ -31,5 +43,5 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 echo 依赖完成
-echo 正在启动F12截图工具...
+echo 正在启动F10截图工具...
 python gui_app.py

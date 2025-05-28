@@ -4,7 +4,7 @@ import datetime
 import threading
 from pynput import keyboard, mouse
 from screeninfo import get_monitors
-from PIL import Image
+from PIL import Image, ImageGrab # 导入ImageGrab
 import win32api
 import win32gui
 import win32ui
@@ -16,6 +16,9 @@ import sys
 import win32event
 import winerror
 from playsound import playsound # 导入playsound库
+import ctypes # 导入ctypes
+
+from ctypes.wintypes import MSG # 导入MSG结构体
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -29,7 +32,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QSettings
 CONFIG_FILE = "config.ini"
 
 # 互斥量名称，用于实现单例模式
-MUTEX_NAME = "F12CaptureAppMutex"
+MUTEX_NAME = "F10CaptureAppMutex"
 
 # 截图保存根目录
 BASE_SCREENSHOT_DIR = "ScreenShots"
@@ -37,38 +40,8 @@ BASE_SCREENSHOT_DIR = "ScreenShots"
 CUSTOM_SCREENSHOT_DIR = ""
 
 # 默认截图按键
-KEYBINDING = keyboard.Key.f12 # 初始设置为F12
+KEYBINDING = keyboard.Key.f10 # 初始设置为F10
 
-# 用于控制键盘监听器线程的事件
-stop_listener_event = threading.Event()
-
-class KeyboardListenerThread(QThread):
-    """
-    独立的线程用于监听键盘事件。
-    """
-    key_pressed = Signal(object)
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.listener = None
-
-    def run(self):
-        with keyboard.Listener(on_press=self.on_press, on_release=self.on_release) as self.listener:
-            self.listener.join()
-
-    def on_press(self, key):
-        self.key_pressed.emit(key)
-
-    def on_release(self, key):
-        if key == keyboard.Key.esc:
-            print("检测到Esc键按下，键盘监听器即将停止。")
-            stop_listener_event.set()
-            return False # 停止监听器
-
-    def stop(self):
-        if self.listener:
-            self.listener.stop()
-        self.wait() # 等待线程结束
 
 def get_process_name_from_point(x, y):
     """
@@ -91,29 +64,30 @@ def get_process_name_from_point(x, y):
 def take_screenshot_windows_api():
     """
     使用Windows API根据鼠标当前位置截取对应屏幕并保存到本地文件。
+    如果Windows API截图失败，则尝试使用ImageGrab进行全屏截图。
     """
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
+    current_mouse_x, current_mouse_y = mouse.Controller().position
+    process_name = get_process_name_from_point(current_mouse_x, current_mouse_y)
+    
+    global CUSTOM_SCREENSHOT_DIR
+    
+    if CUSTOM_SCREENSHOT_DIR and os.path.isdir(CUSTOM_SCREENSHOT_DIR):
+        final_screenshot_base_dir = CUSTOM_SCREENSHOT_DIR
+        print(f"使用自定义截图目录: {final_screenshot_base_dir}")
+    else:
+        final_screenshot_base_dir = BASE_SCREENSHOT_DIR
+        print(f"使用默认截图根目录: {final_screenshot_base_dir}")
+
+    screenshot_dir = os.path.join(final_screenshot_base_dir, process_name)
+    os.makedirs(screenshot_dir, exist_ok=True)
+
+    filename = os.path.join(screenshot_dir, f"{timestamp}.png")
+
+    img = None
     try:
-        current_mouse_x, current_mouse_y = mouse.Controller().position
-        process_name = get_process_name_from_point(current_mouse_x, current_mouse_y)
-        
-        global CUSTOM_SCREENSHOT_DIR
-        
-        if CUSTOM_SCREENSHOT_DIR and os.path.isdir(CUSTOM_SCREENSHOT_DIR):
-            final_screenshot_base_dir = CUSTOM_SCREENSHOT_DIR
-            print(f"使用自定义截图目录: {final_screenshot_base_dir}")
-        else:
-            final_screenshot_base_dir = BASE_SCREENSHOT_DIR
-            print(f"使用默认截图根目录: {final_screenshot_base_dir}")
-
-        screenshot_dir = os.path.join(final_screenshot_base_dir, process_name)
-        os.makedirs(screenshot_dir, exist_ok=True)
-
-        filename = os.path.join(screenshot_dir, f"{timestamp}.png")
-
         monitors = get_monitors()
-
         target_monitor = None
         for m in monitors:
             if m.x <= current_mouse_x < m.x + m.width and \
@@ -122,7 +96,7 @@ def take_screenshot_windows_api():
                 break
         
         if target_monitor is None and monitors:
-            target_monitor = monitors[0]
+            target_monitor = monitors[0] # 如果鼠标不在任何已知显示器上，则默认截取主显示器
 
         if target_monitor:
             hdesktop = win32gui.GetDesktopWindow()
@@ -145,13 +119,29 @@ def take_screenshot_windows_api():
                 (bmpinfo['bmWidth'], bmpinfo['bmHeight']),
                 bmpstr, 'raw', 'BGRX', 0, 1
             )
-            img.save(filename)
 
             win32gui.DeleteObject(screenshot_bitmap.GetHandle())
             mem_dc.DeleteDC()
             img_dc.DeleteDC()
             win32gui.ReleaseDC(hdesktop, desktop_dc)
+            print("使用Windows API成功截图。")
+        else:
+            print("未找到任何显示器信息，尝试使用ImageGrab进行全屏截图。")
+            img = ImageGrab.grab() # 回退到ImageGrab进行全屏截图
+            print("使用ImageGrab进行全屏截图。")
 
+    except Exception as e:
+        print(f"Windows API截图失败: {e}，尝试使用ImageGrab进行全屏截图。")
+        try:
+            img = ImageGrab.grab() # 回退到ImageGrab进行全屏截图
+            print("使用ImageGrab进行全屏截图。")
+        except Exception as grab_e:
+            print(f"ImageGrab截图也失败: {grab_e}")
+            img = None
+
+    if img:
+        try:
+            img.save(filename)
             print(f"截图已保存到: {filename}")
             # 播放截图音效
             try:
@@ -159,11 +149,10 @@ def take_screenshot_windows_api():
                 print("截图音效已播放。")
             except Exception as sound_e:
                 print(f"播放截图音效失败: {sound_e}")
-        else:
-            print("未找到任何显示器信息，无法截图。")
-
-    except Exception as e:
-        print(f"截图失败: {e}")
+        except Exception as save_e:
+            print(f"保存截图文件失败: {save_e}")
+    else:
+        print("未能成功截图。")
 
 def load_config():
     """
@@ -177,17 +166,19 @@ def load_config():
             if 'keybinding' in config['Settings']:
                 key_str = config['Settings']['keybinding']
                 try:
-                    # PySide6的QKeySequence不支持pynput的Key对象，需要转换为字符串或Qt::Key枚举
-                    # 这里我们仍然使用pynput的Key对象来处理键盘监听，但需要一个字符串表示来显示
-                    if hasattr(keyboard.Key, key_str):
-                        KEYBINDING = getattr(keyboard.Key, key_str)
-                    elif len(key_str) == 1:
+                    # 尝试从字符串解析为pynput Key对象（如'f12' -> keyboard.Key.f12）
+                    if hasattr(keyboard.Key, key_str.lower()):
+                        KEYBINDING = getattr(keyboard.Key, key_str.lower())
+                    elif len(key_str) == 1: # 尝试解析单个字符
                         KEYBINDING = keyboard.KeyCode.from_char(key_str)
                     else:
-                        # 尝试从字符串解析为KeyCode，如果失败则保持默认
+                        # 如果都不是，则尝试作为KeyCode处理，如果失败则保持默认
+                        # 这一步可能需要更健壮的解析，但目前先这样
                         KEYBINDING = keyboard.KeyCode.from_char(key_str)
+                        print(f"警告: 无法完全识别的按键字符串 '{key_str}'，尝试作为KeyCode处理。")
                 except Exception as e:
-                    print(f"加载按键绑定失败: {e}")
+                    print(f"加载按键绑定失败: {e}，将使用默认按键F10。")
+                    KEYBINDING = keyboard.Key.f10 # 加载失败时恢复默认F10
             if 'custom_screenshot_dir' in config['Settings']:
                 CUSTOM_SCREENSHOT_DIR = config['Settings']['custom_screenshot_dir']
                 print(f"加载自定义截图目录: {CUSTOM_SCREENSHOT_DIR}")
@@ -447,10 +438,10 @@ class SettingsWindow(QMainWindow):
             self.key_listener_for_entry.stop()
         event.accept()
 
-class F12CaptureApp(QMainWindow):
+class F10CaptureApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("F12截图工具")
+        self.setWindowTitle("F10截图工具")
         self.setFixedSize(300, 150) # 主窗口可以小一点，因为主要通过托盘操作
         # self.setWindowFlags(Qt.Window)
         # self.setWindowFlags(Qt.WindowStaysOnTopHint) # 主窗口也置顶
@@ -474,16 +465,16 @@ class F12CaptureApp(QMainWindow):
             }
         """)
 
-        self.status_label = QLabel("F12截图工具已启动，在后台运行。")
+        self.status_label = QLabel(f"F10截图工具 (热键: {str(KEYBINDING).replace('Key.', '').replace("'", "")}) 已启动，在后台运行。")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.status_label)
 
-        self.keyboard_thread = None
         self.tray_icon = None
         self.settings_window = None
+        self.HOTKEY_ID = 100 # 定义热键ID
 
         self.init_tray_icon()
-        self.start_keyboard_listener()
+        self.register_hotkey() # 注册全局热键
         self.hide() # 启动时隐藏主窗口，只显示托盘图标
 
     def init_tray_icon(self):
@@ -506,7 +497,7 @@ class F12CaptureApp(QMainWindow):
                 pixmap = QIcon()
             self.tray_icon.setIcon(pixmap)
 
-        self.tray_icon.setToolTip("F12截图工具")
+        self.tray_icon.setToolTip("F10截图工具")
 
         tray_menu = QMenu()
         # 美化托盘菜单样式
@@ -554,24 +545,90 @@ class F12CaptureApp(QMainWindow):
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
 
-    def start_keyboard_listener(self):
-        if self.keyboard_thread and self.keyboard_thread.isRunning():
-            self.keyboard_thread.stop()
-            self.keyboard_thread.wait() # 确保旧线程完全停止
+    def get_vk_code(self, key_obj):
+        """
+        将pynput Key对象或字符串转换为Windows虚拟键码。
+        """
+        if isinstance(key_obj, keyboard.Key):
+            if key_obj == keyboard.Key.f1: return win32con.VK_F1
+            if key_obj == keyboard.Key.f2: return win32con.VK_F2
+            if key_obj == keyboard.Key.f3: return win32con.VK_F3
+            if key_obj == keyboard.Key.f4: return win32con.VK_F4
+            if key_obj == keyboard.Key.f5: return win32con.VK_F5
+            if key_obj == keyboard.Key.f6: return win32con.VK_F6
+            if key_obj == keyboard.Key.f7: return win32con.VK_F7
+            if key_obj == keyboard.Key.f8: return win32con.VK_F8
+            if key_obj == keyboard.Key.f9: return win32con.VK_F9
+            if key_obj == keyboard.Key.f10: return win32con.VK_F10
+            if key_obj == keyboard.Key.f11: return win32con.VK_F11
+            if key_obj == keyboard.Key.f12: return win32con.VK_F12
+            # 可以根据需要添加其他特殊键的映射
+        elif isinstance(key_obj, keyboard.KeyCode) and key_obj.char:
+            return ord(key_obj.char.upper()) # 对于普通字符，转换为大写字母的ASCII值
+        elif isinstance(key_obj, str):
+            if len(key_obj) == 1:
+                return ord(key_obj.upper())
+            elif key_obj.lower() == 'f10': # 兼容字符串'f10'
+                return win32con.VK_F10
+            # 可以添加其他字符串到VK_CODE的映射
+        return None
 
-        self.keyboard_thread = KeyboardListenerThread()
-        self.keyboard_thread.key_pressed.connect(self.handle_key_press)
-        self.keyboard_thread.start()
-        print("键盘监听器已启动。")
-
-    def handle_key_press(self, key):
-        global KEYBINDING
+    def register_hotkey(self):
+        """
+        注册全局热键。
+        """
+        # 注销旧热键（如果存在）
         try:
-            if key == KEYBINDING:
-                print(f"检测到 {KEYBINDING} 键按下，正在截图当前屏幕...")
-                take_screenshot_windows_api()
-        except AttributeError:
-            pass
+            win32gui.UnregisterHotKey(self.winId().__int__(), self.HOTKEY_ID)
+            print("旧热键已注销。")
+        except Exception as e:
+            # 1419 是 ERROR_HOTKEY_NOT_REGISTERED，表示热键未注册，这是正常情况
+            if e.args[0] == 1419:
+                print("信息: 热键未注册，无需注销。")
+            else:
+                print(f"注销旧热键时发生未知错误: {e}")
+
+        # 注册新热键
+        try:
+            vk_code = self.get_vk_code(KEYBINDING)
+            if vk_code is not None:
+                # MOD_NOREPEAT 标志可以防止热键重复触发
+                win32gui.RegisterHotKey(self.winId().__int__(), self.HOTKEY_ID, win32con.MOD_NOREPEAT, vk_code)
+                print(f"全局热键 {str(KEYBINDING).replace('Key.', '').replace("'", "")} (VK_CODE: {vk_code}) 已注册。")
+            else:
+                QMessageBox.critical(self, "错误", f"无法注册热键: {str(KEYBINDING).replace('Key.', '').replace("'", "")}\n未找到对应的虚拟键码。")
+                print(f"无法注册热键: {KEYBINDING}，未找到对应的虚拟键码。")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"注册全局热键失败: {e}\n请尝试以管理员身份运行程序。")
+            print(f"注册全局热键失败: {e}")
+
+    def unregister_hotkey(self):
+        """
+        注销全局热键。
+        """
+        try:
+            win32gui.UnregisterHotKey(self.winId().__int__(), self.HOTKEY_ID)
+            print("全局热键已注销。")
+        except Exception as e:
+            print(f"注销全局热键失败: {e}")
+
+    def nativeEvent(self, eventType, message):
+        """
+        处理Windows原生消息，包括热键消息。
+        """
+        if eventType == "windows_generic_MSG":
+            # message 是一个指向 MSG 结构体的指针
+            # 将 message 转换为 ctypes 的指针
+            msg_ptr = ctypes.cast(message.__int__(), ctypes.POINTER(MSG))
+            msg = msg_ptr.contents # 获取 MSG 结构体的内容
+
+            if msg.message == win32con.WM_HOTKEY:
+                hotkey_id = win32api.LOWORD(msg.wParam)
+                if hotkey_id == self.HOTKEY_ID:
+                    print("检测到全局热键按下！正在截图...")
+                    take_screenshot_windows_api()
+                    return True, 0 # 消息已处理
+        return False, 0 # 消息未处理
 
     def open_settings_window(self):
         if self.settings_window is None:
@@ -584,8 +641,8 @@ class F12CaptureApp(QMainWindow):
     def update_keybinding(self, new_key):
         global KEYBINDING
         KEYBINDING = new_key
-        # 重新启动键盘监听器以应用新的按键绑定
-        self.start_keyboard_listener()
+        # 重新注册全局热键以应用新的按键绑定
+        self.register_hotkey()
         print(f"主窗口已更新按键绑定为: {KEYBINDING}")
 
     def update_path_display(self, new_path):
@@ -595,8 +652,7 @@ class F12CaptureApp(QMainWindow):
 
     def quit_app(self):
         print("正在退出应用程序...")
-        if self.keyboard_thread and self.keyboard_thread.isRunning():
-            self.keyboard_thread.stop()
+        self.unregister_hotkey() # 退出前注销热键
         if self.tray_icon:
             self.tray_icon.hide()
         if self.settings_window:
@@ -618,8 +674,8 @@ if __name__ == "__main__":
         app = QApplication(sys.argv) # 仍然需要QApplication来显示MessageBox
         msg_box = QMessageBox()
         msg_box.setIcon(QMessageBox.Warning)
-        msg_box.setWindowTitle("F12截图工具")
-        msg_box.setText("F12截图工具已在运行。")
+        msg_box.setWindowTitle("F10截图工具")
+        msg_box.setText("F10截图工具已在运行。")
         msg_box.setInformativeText("请勿重复启动。")
         msg_box.setStandardButtons(QMessageBox.Ok)
         msg_box.exec()
@@ -629,7 +685,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False) # 即使所有窗口关闭，也不退出应用（因为有托盘图标）
 
-    main_app = F12CaptureApp()
+    main_app = F10CaptureApp()
     exit_code = app.exec()
 
     # 释放互斥量
