@@ -23,10 +23,11 @@ from ctypes.wintypes import MSG # 导入MSG结构体
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSystemTrayIcon, QMenu, QFileDialog,
-    QMessageBox, QFrame, QSizePolicy
+    QMessageBox, QFrame, QSizePolicy, QGridLayout, QScrollArea,
+    QGraphicsScene, QGraphicsView, QGraphicsPixmapItem
 )
-from PySide6.QtGui import QIcon, QAction, QKeySequence
-from PySide6.QtCore import Qt, QThread, Signal, QSettings
+from PySide6.QtGui import QIcon, QAction, QKeySequence, QPixmap, QImage, QPainter
+from PySide6.QtCore import Qt, QThread, Signal, QSettings, QSize, QDir
 
 # 配置文件路径
 CONFIG_FILE = "config.ini"
@@ -60,6 +61,44 @@ def get_foreground_process_name():
     except Exception as e:
         print(f"获取前景进程名称失败: {e}")
         return "Erro  rProcess"
+
+def get_process_icon(process_name):
+    """
+    根据进程名称获取其可执行文件的图标。
+    如果找不到对应的进程或图标，则返回一个默认图标。
+    """
+    icon_path = "icon.png" # 默认图标路径
+    if hasattr(sys, '_MEIPASS'):
+        icon_path = os.path.join(sys._MEIPASS, icon_path)
+
+    try:
+        # 尝试找到进程的可执行文件路径
+        for proc in psutil.process_iter(['name', 'exe']):
+            if proc.info['name'] and proc.info['name'].lower() == process_name.lower() + ".exe":
+                exe_path = proc.info['exe']
+                if exe_path and os.path.exists(exe_path):
+                    # 提取图标
+                    try:
+                        # 尝试使用 win32gui.ExtractIcon 提取图标
+                        hicon = win32gui.ExtractIcon(0, exe_path, 0) # 提取第一个图标
+                        if hicon:
+                            pixmap = QPixmap.fromImage(QImage.fromHICON(hicon))
+                            win32gui.DestroyIcon(hicon)
+                            if not pixmap.isNull():
+                                return QIcon(pixmap)
+                        else:
+                            # 如果 ExtractIcon 失败，尝试提取其他索引的图标
+                            # 或者直接跳过，让函数返回默认图标
+                            print(f"从 '{exe_path}' 提取图标失败: win32gui.ExtractIcon 返回空句柄。")
+                    except Exception as icon_e:
+                        print(f"从 '{exe_path}' 提取图标失败: {icon_e}")
+                # 无论是否成功提取图标，只要找到对应的进程，就跳出循环
+                break # 修正：将break放在这里，确保在找到进程后退出循环
+    except Exception as e:
+        print(f"获取进程 '{process_name}' 图标失败: {e}")
+    
+    # 如果获取失败，返回默认图标
+    return QIcon(icon_path)
 
 def take_screenshot_windows_api():
     """
@@ -438,6 +477,201 @@ class SettingsWindow(QMainWindow):
             self.key_listener_for_entry.stop()
         event.accept()
 
+class ViewScreenshotsWindow(QMainWindow):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("查看截图")
+        self.setFixedSize(800, 600)
+        self.setWindowFlags(Qt.Window)
+
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.layout = QVBoxLayout(self.central_widget)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(15)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget()
+        self.scroll_area.setWidget(self.scroll_content)
+        self.grid_layout = QGridLayout(self.scroll_content)
+        self.layout.addWidget(self.scroll_area)
+
+        self.image_viewer_window = None # 新增：用于存储ImageViewerWindow实例
+
+        self.load_screenshot_folders()
+
+    def load_screenshot_folders(self):
+        # 清除现有内容
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        screenshot_base_dir = BASE_SCREENSHOT_DIR
+        if CUSTOM_SCREENSHOT_DIR and os.path.isdir(CUSTOM_SCREENSHOT_DIR):
+            screenshot_base_dir = CUSTOM_SCREENSHOT_DIR
+
+        print(f"DEBUG: 截图根目录: {screenshot_base_dir}")
+        folders = [f for f in os.listdir(screenshot_base_dir) if os.path.isdir(os.path.join(screenshot_base_dir, f))]
+        print(f"DEBUG: 识别到的截图文件夹: {folders}")
+        
+        row = 0
+        col = 0
+        for folder_name in sorted(folders):
+            folder_path = os.path.join(screenshot_base_dir, folder_name)
+            
+            # 创建一个垂直布局来放置图标和文本
+            item_layout = QVBoxLayout()
+            item_layout.setAlignment(Qt.AlignCenter)
+
+            # 获取进程图标
+            process_icon = get_process_icon(folder_name)
+            icon_label = QLabel()
+            icon_label.setFixedSize(64, 64) # 图标大小
+            icon_label.setAlignment(Qt.AlignCenter)
+            icon_label.setPixmap(process_icon.pixmap(QSize(64, 64)))
+            item_layout.addWidget(icon_label)
+
+            name_label = QLabel(folder_name)
+            name_label.setAlignment(Qt.AlignCenter)
+            item_layout.addWidget(name_label)
+
+            # 将布局添加到网格布局中
+            container_widget = QWidget()
+            container_widget.setLayout(item_layout)
+            container_widget.setCursor(Qt.PointingHandCursor) # 设置手型光标
+            container_widget.mousePressEvent = lambda event, path=folder_path: self.open_folder_screenshots(path)
+
+            self.grid_layout.addWidget(container_widget, row, col)
+            
+            col += 1
+            if col >= 4: # 每行显示4个文件夹
+                col = 0
+                row += 1
+        
+        self.grid_layout.setRowStretch(row, 1) # 确保内容顶部对齐
+        self.grid_layout.setColumnStretch(col, 1) # 确保内容左对齐
+
+    def open_folder_screenshots(self, folder_path):
+        self.image_viewer_window = ImageViewerWindow(folder_path)
+        self.image_viewer_window.show()
+        self.image_viewer_window.activateWindow()
+
+class ImageViewerWindow(QMainWindow):
+    def __init__(self, folder_path, parent=None):
+        super().__init__(parent)
+        self.folder_path = folder_path
+        self.setWindowTitle(f"查看截图 - {os.path.basename(folder_path)}")
+        self.setFixedSize(1000, 700)
+        self.setWindowFlags(Qt.Window)
+
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.layout = QVBoxLayout(self.central_widget)
+        self.layout.setContentsMargins(10, 10, 10, 10)
+        self.layout.setSpacing(10)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget()
+        self.scroll_area.setWidget(self.scroll_content)
+        self.grid_layout = QGridLayout(self.scroll_content)
+        self.layout.addWidget(self.scroll_area)
+
+        self.load_images()
+
+    def load_images(self):
+        # 清除现有内容
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        print(f"DEBUG: 当前图片文件夹路径: {self.folder_path}")
+        image_files = [f for f in os.listdir(self.folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+        print(f"DEBUG: 识别到的图片文件: {image_files}")
+        
+        row = 0
+        col = 0
+        for image_name in sorted(image_files):
+            image_path = os.path.join(self.folder_path, image_name)
+            
+            # 创建一个垂直布局来放置图片和文件名
+            item_layout = QVBoxLayout()
+            item_layout.setAlignment(Qt.AlignCenter)
+
+            image_label = QLabel()
+            image_label.setFixedSize(200, 150) # 预览图大小
+            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setStyleSheet("border: 1px solid #e0e0e0;") # 添加边框
+
+            try:
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull():
+                    pixmap = pixmap.scaled(image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    image_label.setPixmap(pixmap)
+                else:
+                    image_label.setText("无法加载图片")
+            except Exception as e:
+                image_label.setText(f"加载失败: {e}")
+                print(f"加载图片 {image_path} 失败: {e}")
+
+            name_label = QLabel(image_name)
+            name_label.setAlignment(Qt.AlignCenter)
+            name_label.setWordWrap(True) # 自动换行
+            item_layout.addWidget(image_label)
+            item_layout.addWidget(name_label)
+
+            # 将布局添加到网格布局中
+            container_widget = QWidget()
+            container_widget.setLayout(item_layout)
+            container_widget.setCursor(Qt.PointingHandCursor) # 设置手型光标
+            container_widget.mousePressEvent = lambda event, path=image_path: self.open_image_fullscreen(path)
+
+            self.grid_layout.addWidget(container_widget, row, col)
+            
+            col += 1
+            if col >= 4: # 每行显示4张图片
+                col = 0
+                row += 1
+        
+        self.grid_layout.setRowStretch(row, 1)
+        self.grid_layout.setColumnStretch(col, 1)
+
+    def open_image_fullscreen(self, image_path):
+        # 创建一个新窗口来显示全屏图片
+        full_screen_viewer = QMainWindow(self)
+        full_screen_viewer.setWindowTitle(os.path.basename(image_path))
+        full_screen_viewer.setWindowFlags(Qt.Window)
+        full_screen_viewer.showMaximized() # 最大化显示
+
+        central_widget = QWidget()
+        full_screen_viewer.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        graphics_scene = QGraphicsScene()
+        graphics_view = QGraphicsView(graphics_scene)
+        graphics_view.setRenderHint(QPainter.Antialiasing) # 抗锯齿
+        graphics_view.setRenderHint(QPainter.SmoothPixmapTransform) # 平滑缩放
+
+        pixmap = QPixmap(image_path)
+        if not pixmap.isNull():
+            pixmap_item = QGraphicsPixmapItem(pixmap)
+            graphics_scene.addItem(pixmap_item)
+            graphics_view.fitInView(pixmap_item, Qt.KeepAspectRatio) # 适应视图大小
+        else:
+            error_label = QLabel("无法加载图片")
+            error_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(error_label)
+            print(f"全屏显示图片 {image_path} 失败：无法加载。")
+
+        layout.addWidget(graphics_view)
+        full_screen_viewer.show()
+
 class F10CaptureApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -471,6 +705,7 @@ class F10CaptureApp(QMainWindow):
 
         self.tray_icon = None
         self.settings_window = None
+        self.view_screenshots_window = None # 新增：查看截图窗口实例
         self.HOTKEY_ID = 100 # 定义热键ID
 
         self.init_tray_icon()
@@ -534,6 +769,10 @@ class F10CaptureApp(QMainWindow):
         settings_action = QAction("设置", self)
         settings_action.triggered.connect(self.open_settings_window)
         tray_menu.addAction(settings_action)
+
+        view_screenshots_action = QAction("查看", self)
+        view_screenshots_action.triggered.connect(self.open_view_screenshots_window)
+        tray_menu.addAction(view_screenshots_action)
 
         # 添加一个分隔线
         tray_menu.addSeparator()
@@ -650,6 +889,12 @@ class F10CaptureApp(QMainWindow):
         CUSTOM_SCREENSHOT_DIR = new_path
         print(f"主窗口已更新自定义路径为: {CUSTOM_SCREENSHOT_DIR}")
 
+    def open_view_screenshots_window(self):
+        if self.view_screenshots_window is None:
+            self.view_screenshots_window = ViewScreenshotsWindow()
+        self.view_screenshots_window.show()
+        self.view_screenshots_window.activateWindow()
+
     def quit_app(self):
         print("正在退出应用程序...")
         self.unregister_hotkey() # 退出前注销热键
@@ -665,13 +910,38 @@ class F10CaptureApp(QMainWindow):
         event.ignore() # 忽略关闭事件，防止程序退出
 
 if __name__ == "__main__":
-    # 尝试创建命名互斥量
-    mutex = win32event.CreateMutex(None, 1, MUTEX_NAME)
+    # 尝试创建命名互斥量，不立即拥有
+    mutex = win32event.CreateMutex(None, 0, MUTEX_NAME)
     last_error = win32api.GetLastError()
 
-    if last_error == winerror.ERROR_ALREADY_EXISTS:
-        # 如果互斥量已存在，说明程序已在运行
-        app = QApplication(sys.argv) # 仍然需要QApplication来显示MessageBox
+    # 尝试获取互斥量，0毫秒等待，立即返回
+    wait_result = win32event.WaitForSingleObject(mutex, 0)
+
+    if wait_result == win32con.WAIT_OBJECT_0:
+        # 成功获取互斥量，表示当前是唯一实例
+        # 如果 last_error 是 ERROR_ALREADY_EXISTS，说明互斥量之前存在但现在可以获取了（可能之前的实例异常退出）
+        if last_error == winerror.ERROR_ALREADY_EXISTS:
+            print("信息: 互斥量已存在，但成功获取。可能之前的实例异常退出。")
+        
+        # 程序首次运行或之前的实例异常退出
+        load_config() # 在程序启动时加载配置
+        app = QApplication(sys.argv) # 确保只在这里创建 QApplication 实例
+        app.setQuitOnLastWindowClosed(False) # 即使所有窗口关闭，也不退出应用（因为有托盘图标）
+
+        main_app = F10CaptureApp()
+        exit_code = app.exec()
+
+        # 释放互斥量
+        win32event.ReleaseMutex(mutex)
+        win32api.CloseHandle(mutex)
+        sys.exit(exit_code)
+    else:
+        # 无法获取互斥量，说明有其他实例正在运行
+        print("警告: 无法获取互斥量，程序已在运行。")
+        app_instance = QApplication.instance()
+        if app_instance is None:
+            app_instance = QApplication(sys.argv) # 仅在没有实例时创建
+
         msg_box = QMessageBox()
         msg_box.setIcon(QMessageBox.Warning)
         msg_box.setWindowTitle("F10截图工具")
@@ -681,14 +951,45 @@ if __name__ == "__main__":
         msg_box.exec()
         sys.exit(0) # 退出当前实例
 
-    load_config() # 在程序启动时加载配置
-    app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False) # 即使所有窗口关闭，也不退出应用（因为有托盘图标）
 
-    main_app = F10CaptureApp()
-    exit_code = app.exec()
+if __name__ == "__main__":
+    # 尝试创建命名互斥量
+    mutex = win32event.CreateMutex(None, 0, MUTEX_NAME)
+    last_error = win32api.GetLastError()
 
-    # 释放互斥量
-    win32event.ReleaseMutex(mutex)
-    win32api.CloseHandle(mutex)  # 正确：使用 win32api.CloseHandle
-    sys.exit(exit_code)
+    # 尝试获取互斥量，0毫秒等待，立即返回
+    wait_result = win32event.WaitForSingleObject(mutex, 0)
+
+    if wait_result == win32con.WAIT_OBJECT_0:
+        # 成功获取互斥量，表示当前是唯一实例
+        # 如果 last_error 是 ERROR_ALREADY_EXISTS，说明互斥量之前存在但现在可以获取了（可能之前的实例异常退出）
+        if last_error == winerror.ERROR_ALREADY_EXISTS:
+            print("信息: 互斥量已存在，但成功获取。可能之前的实例异常退出。")
+        
+        # 程序首次运行或之前的实例异常退出
+        load_config() # 在程序启动时加载配置
+        app = QApplication(sys.argv) # 确保只在这里创建 QApplication 实例
+        app.setQuitOnLastWindowClosed(False) # 即使所有窗口关闭，也不退出应用（因为有托盘图标）
+
+        main_app = F10CaptureApp()
+        exit_code = app.exec()
+
+        # 释放互斥量
+        win32event.ReleaseMutex(mutex)
+        win32api.CloseHandle(mutex)
+        sys.exit(exit_code)
+    else:
+        # 无法获取互斥量，说明有其他实例正在运行
+        print("警告: 无法获取互斥量，程序已在运行。")
+        app_instance = QApplication.instance()
+        if app_instance is None:
+            app_instance = QApplication(sys.argv) # 仅在没有实例时创建
+
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("F10截图工具")
+        msg_box.setText("F10截图工具已在运行。")
+        msg_box.setInformativeText("请勿重复启动。")
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.exec()
+        sys.exit(0) # 退出当前实例
