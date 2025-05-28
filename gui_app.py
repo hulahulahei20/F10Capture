@@ -477,6 +477,8 @@ class SettingsWindow(QMainWindow):
             self.key_listener_for_entry.stop()
         event.accept()
 
+from PySide6.QtWidgets import QStackedWidget # 导入QStackedWidget
+
 class ViewScreenshotsWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -486,25 +488,143 @@ class ViewScreenshotsWindow(QMainWindow):
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.layout = QVBoxLayout(self.central_widget)
-        self.layout.setContentsMargins(20, 20, 20, 20)
-        self.layout.setSpacing(15)
+        self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(20, 20, 20, 20)
+        self.main_layout.setSpacing(15)
 
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_content = QWidget()
-        self.scroll_area.setWidget(self.scroll_content)
-        self.grid_layout = QGridLayout(self.scroll_content)
-        self.layout.addWidget(self.scroll_area)
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f0f2f5; /* 浅灰色背景 */
+            }
+            QFrame#itemFrame { /* 为项目容器定义样式 */
+                background-color: #ffffff; /* 白色背景 */
+                border: 1px solid #e0e0e0; /* 浅边框 */
+                border-radius: 8px; /* 圆角 */
+                padding: 10px; /* 内部填充 */
+            }
+            QFrame#itemFrame:hover { /* 鼠标悬停时背景变蓝 */
+                background-color: #e0f2ff; /* 浅蓝色 */
+                border: 1px solid #007bff; /* 蓝色边框 */
+            }
+            QLabel {
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 14px;
+                color: #333333; /* 深灰色字体 */
+            }
+            QLabel#folder_name_label, QLabel#image_name_label {
+                font-weight: bold;
+                color: #007bff; /* 蓝色强调色 */
+            }
+            QPushButton {
+                background-color: #007bff; /* 蓝色背景 */
+                color: white; /* 白色字体 */
+                border: none;
+                border-radius: 5px; /* 圆角 */
+                padding: 8px 15px; /* 内部填充 */
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #0056b3; /* 悬停时的深蓝色 */
+            }
+            QPushButton:pressed {
+                background-color: #004085; /* 按下时的更深蓝色 */
+            }
+            QScrollArea {
+                border: none; /* 移除滚动区域的边框 */
+            }
+            QGraphicsView {
+                border: none; /* 移除图片查看器的边框 */
+            }
+            /* 调整网格布局中项目的对齐方式 */
+            QGridLayout {
+                alignment: Qt.AlignLeft | Qt.AlignTop;
+            }
+        """)
 
-        self.image_viewer_window = None # 新增：用于存储ImageViewerWindow实例
+        self.stacked_widget = QStackedWidget(self)
+        self.main_layout.addWidget(self.stacked_widget)
 
-        self.load_screenshot_folders()
+        # 文件夹视图
+        self.folders_view_widget = QWidget()
+        self.folders_view_layout = QVBoxLayout(self.folders_view_widget)
+        self.folders_view_layout.setContentsMargins(0, 0, 0, 0)
+        self.folders_view_layout.setSpacing(10)
+
+        self.folders_scroll_area = QScrollArea(self)
+        self.folders_scroll_area.setWidgetResizable(True)
+        self.folders_content = QWidget()
+        self.folders_scroll_area.setWidget(self.folders_content)
+        self.folders_grid_layout = QGridLayout(self.folders_content)
+        self.folders_view_layout.addWidget(self.folders_scroll_area)
+        self.stacked_widget.addWidget(self.folders_view_widget)
+
+        # 图片视图
+        self.images_view_widget = QWidget()
+        self.images_view_layout = QVBoxLayout(self.images_view_widget)
+        self.images_view_layout.setContentsMargins(0, 0, 0, 0)
+        self.images_view_layout.setSpacing(10)
+
+        self.back_button_layout = QHBoxLayout()
+        self.back_button = QPushButton("返回文件夹列表")
+        self.back_button.clicked.connect(self.show_folders_view)
+        self.back_button_layout.addWidget(self.back_button)
+        self.back_button_layout.addStretch()
+        self.images_view_layout.addLayout(self.back_button_layout)
+
+        self.images_scroll_area = QScrollArea(self)
+        self.images_scroll_area.setWidgetResizable(True)
+        self.images_content = QWidget()
+        self.images_scroll_area.setWidget(self.images_content)
+        self.images_grid_layout = QGridLayout(self.images_content)
+        self.images_view_layout.addWidget(self.images_scroll_area)
+        self.stacked_widget.addWidget(self.images_view_widget)
+
+        # 全屏图片视图
+        self.fullscreen_image_view_widget = QWidget()
+        self.fullscreen_image_view_layout = QVBoxLayout(self.fullscreen_image_view_widget)
+        self.fullscreen_image_view_layout.setContentsMargins(0, 0, 0, 0)
+        self.fullscreen_image_view_layout.setSpacing(10)
+
+        self.fullscreen_back_button_layout = QHBoxLayout()
+        self.fullscreen_back_button = QPushButton("返回图片列表")
+        self.fullscreen_back_button.clicked.connect(self.show_images_view_from_fullscreen)
+        self.fullscreen_back_button_layout.addWidget(self.fullscreen_back_button)
+        self.fullscreen_back_button_layout.addStretch()
+        self.fullscreen_image_view_layout.addLayout(self.fullscreen_back_button_layout)
+
+        self.fullscreen_graphics_scene = QGraphicsScene()
+        self.fullscreen_graphics_view = QGraphicsView(self.fullscreen_graphics_scene)
+        self.fullscreen_graphics_view.setRenderHint(QPainter.Antialiasing)
+        self.fullscreen_graphics_view.setRenderHint(QPainter.SmoothPixmapTransform)
+        self.fullscreen_graphics_view.setDragMode(QGraphicsView.ScrollHandDrag) # 允许拖动
+        self.fullscreen_graphics_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse) # 鼠标下缩放
+        self.fullscreen_graphics_view.setResizeAnchor(QGraphicsView.AnchorUnderMouse) # 鼠标下调整大小
+
+        self.fullscreen_image_view_layout.addWidget(self.fullscreen_graphics_view)
+        self.stacked_widget.addWidget(self.fullscreen_image_view_widget)
+
+        self.current_image_pixmap_item = None # 用于存储当前显示的QGraphicsPixmapItem
+
+        self.load_screenshot_folders() # 初始加载文件夹视图
+        self.show_folders_view() # 默认显示文件夹视图
+
+    def show_folders_view(self):
+        self.setWindowTitle("查看截图")
+        self.stacked_widget.setCurrentWidget(self.folders_view_widget)
+        self.load_screenshot_folders() # 每次返回时刷新文件夹列表
+
+    def show_images_view_from_fullscreen(self):
+        # 从全屏图片视图返回到图片列表视图
+        self.setWindowTitle(f"查看截图 - {os.path.basename(self.current_folder_path)}")
+        self.stacked_widget.setCurrentWidget(self.images_view_widget)
+        # 不需要重新加载图片，因为current_folder_path已经设置，并且图片列表应该还在
 
     def load_screenshot_folders(self):
         # 清除现有内容
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
+        while self.folders_grid_layout.count():
+            item = self.folders_grid_layout.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
@@ -535,69 +655,49 @@ class ViewScreenshotsWindow(QMainWindow):
             item_layout.addWidget(icon_label)
 
             name_label = QLabel(folder_name)
+            name_label.setObjectName("folder_name_label") # 添加对象名
             name_label.setAlignment(Qt.AlignCenter)
             item_layout.addWidget(name_label)
 
             # 将布局添加到网格布局中
-            container_widget = QWidget()
+            container_widget = QFrame() # 使用QFrame作为容器
+            container_widget.setObjectName("itemFrame") # 设置对象名以便QSS选择器使用
             container_widget.setLayout(item_layout)
             container_widget.setCursor(Qt.PointingHandCursor) # 设置手型光标
-            container_widget.mousePressEvent = lambda event, path=folder_path: self.open_folder_screenshots(path)
+            container_widget.mousePressEvent = lambda event, path=folder_path: self.show_images_view(path)
 
-            self.grid_layout.addWidget(container_widget, row, col)
+            self.folders_grid_layout.addWidget(container_widget, row, col)
             
             col += 1
             if col >= 4: # 每行显示4个文件夹
                 col = 0
                 row += 1
         
-        self.grid_layout.setRowStretch(row, 1) # 确保内容顶部对齐
-        self.grid_layout.setColumnStretch(col, 1) # 确保内容左对齐
+        self.folders_grid_layout.setRowStretch(row, 1) # 确保内容顶部对齐
+        self.folders_grid_layout.setColumnStretch(col, 1) # 确保内容左对齐
 
-    def open_folder_screenshots(self, folder_path):
-        self.image_viewer_window = ImageViewerWindow(folder_path)
-        self.image_viewer_window.show()
-        self.image_viewer_window.activateWindow()
-
-class ImageViewerWindow(QMainWindow):
-    def __init__(self, folder_path, parent=None):
-        super().__init__(parent)
-        self.folder_path = folder_path
+    def show_images_view(self, folder_path):
+        self.current_folder_path = folder_path
         self.setWindowTitle(f"查看截图 - {os.path.basename(folder_path)}")
-        self.setFixedSize(1000, 700)
-        self.setWindowFlags(Qt.Window)
+        self.stacked_widget.setCurrentWidget(self.images_view_widget)
+        self.load_images_for_folder(folder_path)
 
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.layout = QVBoxLayout(self.central_widget)
-        self.layout.setContentsMargins(10, 10, 10, 10)
-        self.layout.setSpacing(10)
-
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_content = QWidget()
-        self.scroll_area.setWidget(self.scroll_content)
-        self.grid_layout = QGridLayout(self.scroll_content)
-        self.layout.addWidget(self.scroll_area)
-
-        self.load_images()
-
-    def load_images(self):
+    def load_images_for_folder(self, folder_path):
         # 清除现有内容
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
+        while self.images_grid_layout.count():
+            item = self.images_grid_layout.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
 
-        print(f"DEBUG: 当前图片文件夹路径: {self.folder_path}")
-        image_files = [f for f in os.listdir(self.folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+        print(f"DEBUG: 当前图片文件夹路径: {folder_path}")
+        image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
         print(f"DEBUG: 识别到的图片文件: {image_files}")
         
         row = 0
         col = 0
         for image_name in sorted(image_files):
-            image_path = os.path.join(self.folder_path, image_name)
+            image_path = os.path.join(folder_path, image_name)
             
             # 创建一个垂直布局来放置图片和文件名
             item_layout = QVBoxLayout()
@@ -606,7 +706,8 @@ class ImageViewerWindow(QMainWindow):
             image_label = QLabel()
             image_label.setFixedSize(200, 150) # 预览图大小
             image_label.setAlignment(Qt.AlignCenter)
-            image_label.setStyleSheet("border: 1px solid #e0e0e0;") # 添加边框
+            # 移除这里的内联样式，使用QFrame的样式
+            # image_label.setStyleSheet("border: 1px solid #e0e0e0; border-radius: 5px;") 
 
             try:
                 pixmap = QPixmap(image_path)
@@ -620,57 +721,58 @@ class ImageViewerWindow(QMainWindow):
                 print(f"加载图片 {image_path} 失败: {e}")
 
             name_label = QLabel(image_name)
+            name_label.setObjectName("image_name_label") # 添加对象名
             name_label.setAlignment(Qt.AlignCenter)
             name_label.setWordWrap(True) # 自动换行
             item_layout.addWidget(image_label)
             item_layout.addWidget(name_label)
 
             # 将布局添加到网格布局中
-            container_widget = QWidget()
+            container_widget = QFrame() # 使用QFrame作为容器
+            container_widget.setObjectName("itemFrame") # 设置对象名以便QSS选择器使用
             container_widget.setLayout(item_layout)
             container_widget.setCursor(Qt.PointingHandCursor) # 设置手型光标
             container_widget.mousePressEvent = lambda event, path=image_path: self.open_image_fullscreen(path)
 
-            self.grid_layout.addWidget(container_widget, row, col)
+            self.images_grid_layout.addWidget(container_widget, row, col)
             
             col += 1
             if col >= 4: # 每行显示4张图片
                 col = 0
                 row += 1
         
-        self.grid_layout.setRowStretch(row, 1)
-        self.grid_layout.setColumnStretch(col, 1)
+        self.images_grid_layout.setRowStretch(row, 1)
+        self.images_grid_layout.setColumnStretch(col, 1)
 
     def open_image_fullscreen(self, image_path):
-        # 创建一个新窗口来显示全屏图片
-        full_screen_viewer = QMainWindow(self)
-        full_screen_viewer.setWindowTitle(os.path.basename(image_path))
-        full_screen_viewer.setWindowFlags(Qt.Window)
-        full_screen_viewer.showMaximized() # 最大化显示
-
-        central_widget = QWidget()
-        full_screen_viewer.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        graphics_scene = QGraphicsScene()
-        graphics_view = QGraphicsView(graphics_scene)
-        graphics_view.setRenderHint(QPainter.Antialiasing) # 抗锯齿
-        graphics_view.setRenderHint(QPainter.SmoothPixmapTransform) # 平滑缩放
+        # 清除旧的图片
+        self.fullscreen_graphics_scene.clear()
+        self.current_image_pixmap_item = None
 
         pixmap = QPixmap(image_path)
         if not pixmap.isNull():
-            pixmap_item = QGraphicsPixmapItem(pixmap)
-            graphics_scene.addItem(pixmap_item)
-            graphics_view.fitInView(pixmap_item, Qt.KeepAspectRatio) # 适应视图大小
+            self.current_image_pixmap_item = self.fullscreen_graphics_scene.addPixmap(pixmap)
+            self.fullscreen_graphics_view.fitInView(self.current_image_pixmap_item, Qt.KeepAspectRatio) # 适应视图大小
+            self.setWindowTitle(f"查看截图 - {os.path.basename(image_path)}")
+            self.stacked_widget.setCurrentWidget(self.fullscreen_image_view_widget)
         else:
-            error_label = QLabel("无法加载图片")
-            error_label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(error_label)
+            # 如果图片加载失败，显示错误信息并返回到图片列表
+            QMessageBox.warning(self, "加载图片失败", f"无法加载图片: {os.path.basename(image_path)}")
             print(f"全屏显示图片 {image_path} 失败：无法加载。")
+            self.show_images_view(self.current_folder_path) # 返回到图片列表
 
-        layout.addWidget(graphics_view)
-        full_screen_viewer.show()
+    def wheelEvent(self, event):
+        # 仅在全屏图片视图激活时处理滚轮事件
+        if self.stacked_widget.currentWidget() == self.fullscreen_image_view_widget:
+            zoom_factor = 1.15 # 每次缩放的因子
+            if event.angleDelta().y() > 0:
+                # 向上滚动，放大
+                self.fullscreen_graphics_view.scale(zoom_factor, zoom_factor)
+            else:
+                # 向下滚动，缩小
+                self.fullscreen_graphics_view.scale(1 / zoom_factor, 1 / zoom_factor)
+        else:
+            super().wheelEvent(event) # 如果不在全屏视图，将事件传递给父类
 
 class F10CaptureApp(QMainWindow):
     def __init__(self):
@@ -902,6 +1004,8 @@ class F10CaptureApp(QMainWindow):
             self.tray_icon.hide()
         if self.settings_window:
             self.settings_window.close()
+        if self.view_screenshots_window: # 关闭查看截图窗口
+            self.view_screenshots_window.close()
         QApplication.quit()
 
     def closeEvent(self, event):
@@ -911,49 +1015,6 @@ class F10CaptureApp(QMainWindow):
 
 if __name__ == "__main__":
     # 尝试创建命名互斥量，不立即拥有
-    mutex = win32event.CreateMutex(None, 0, MUTEX_NAME)
-    last_error = win32api.GetLastError()
-
-    # 尝试获取互斥量，0毫秒等待，立即返回
-    wait_result = win32event.WaitForSingleObject(mutex, 0)
-
-    if wait_result == win32con.WAIT_OBJECT_0:
-        # 成功获取互斥量，表示当前是唯一实例
-        # 如果 last_error 是 ERROR_ALREADY_EXISTS，说明互斥量之前存在但现在可以获取了（可能之前的实例异常退出）
-        if last_error == winerror.ERROR_ALREADY_EXISTS:
-            print("信息: 互斥量已存在，但成功获取。可能之前的实例异常退出。")
-        
-        # 程序首次运行或之前的实例异常退出
-        load_config() # 在程序启动时加载配置
-        app = QApplication(sys.argv) # 确保只在这里创建 QApplication 实例
-        app.setQuitOnLastWindowClosed(False) # 即使所有窗口关闭，也不退出应用（因为有托盘图标）
-
-        main_app = F10CaptureApp()
-        exit_code = app.exec()
-
-        # 释放互斥量
-        win32event.ReleaseMutex(mutex)
-        win32api.CloseHandle(mutex)
-        sys.exit(exit_code)
-    else:
-        # 无法获取互斥量，说明有其他实例正在运行
-        print("警告: 无法获取互斥量，程序已在运行。")
-        app_instance = QApplication.instance()
-        if app_instance is None:
-            app_instance = QApplication(sys.argv) # 仅在没有实例时创建
-
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Warning)
-        msg_box.setWindowTitle("F10截图工具")
-        msg_box.setText("F10截图工具已在运行。")
-        msg_box.setInformativeText("请勿重复启动。")
-        msg_box.setStandardButtons(QMessageBox.Ok)
-        msg_box.exec()
-        sys.exit(0) # 退出当前实例
-
-
-if __name__ == "__main__":
-    # 尝试创建命名互斥量
     mutex = win32event.CreateMutex(None, 0, MUTEX_NAME)
     last_error = win32api.GetLastError()
 
