@@ -598,6 +598,7 @@ class ViewScreenshotsWindow(QMainWindow):
         self.fullscreen_graphics_view = QGraphicsView(self.fullscreen_graphics_scene)
         self.fullscreen_graphics_view.setRenderHint(QPainter.Antialiasing)
         self.fullscreen_graphics_view.setRenderHint(QPainter.SmoothPixmapTransform)
+        # 移除QPainter.HighQualityAntialiasing，因为它在PySide6中不存在
         self.fullscreen_graphics_view.setDragMode(QGraphicsView.ScrollHandDrag) # 允许拖动
         self.fullscreen_graphics_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse) # 鼠标下缩放
         self.fullscreen_graphics_view.setResizeAnchor(QGraphicsView.AnchorUnderMouse) # 鼠标下调整大小
@@ -752,6 +753,8 @@ class ViewScreenshotsWindow(QMainWindow):
         pixmap = QPixmap(image_path)
         if not pixmap.isNull():
             self.current_image_pixmap_item = self.fullscreen_graphics_scene.addPixmap(pixmap)
+            # 明确设置QGraphicsPixmapItem的变换模式为平滑
+            self.current_image_pixmap_item.setTransformationMode(Qt.SmoothTransformation)
             self.fullscreen_graphics_view.fitInView(self.current_image_pixmap_item, Qt.KeepAspectRatio) # 适应视图大小
             self.setWindowTitle(f"查看截图 - {os.path.basename(image_path)}")
             self.stacked_widget.setCurrentWidget(self.fullscreen_image_view_widget)
