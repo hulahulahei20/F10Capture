@@ -557,6 +557,7 @@ class ViewScreenshotsWindow(QMainWindow):
         self.folders_content = QWidget()
         self.folders_scroll_area.setWidget(self.folders_content)
         self.folders_grid_layout = QGridLayout(self.folders_content)
+        self.folders_grid_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop) # 显式设置对齐方式
         self.folders_view_layout.addWidget(self.folders_scroll_area)
         self.stacked_widget.addWidget(self.folders_view_widget)
 
@@ -578,6 +579,7 @@ class ViewScreenshotsWindow(QMainWindow):
         self.images_content = QWidget()
         self.images_scroll_area.setWidget(self.images_content)
         self.images_grid_layout = QGridLayout(self.images_content)
+        self.images_grid_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop) # 显式设置对齐方式
         self.images_view_layout.addWidget(self.images_scroll_area)
         self.stacked_widget.addWidget(self.images_view_widget)
 
@@ -667,6 +669,7 @@ class ViewScreenshotsWindow(QMainWindow):
             container_widget.setCursor(Qt.PointingHandCursor) # 设置手型光标
             container_widget.mousePressEvent = lambda event, path=folder_path: self.show_images_view(path)
 
+            container_widget.setFixedSize(120, 120) # 设置固定大小，模拟大图标
             self.folders_grid_layout.addWidget(container_widget, row, col)
             
             col += 1
@@ -674,8 +677,10 @@ class ViewScreenshotsWindow(QMainWindow):
                 col = 0
                 row += 1
         
-        self.folders_grid_layout.setRowStretch(row, 1) # 确保内容顶部对齐
-        self.folders_grid_layout.setColumnStretch(col, 1) # 确保内容左对齐
+        # 确保内容顶部对齐
+        self.folders_grid_layout.setRowStretch(row, 1)
+        # 将所有剩余的水平空间推到最右侧，确保内容靠左排列
+        self.folders_grid_layout.setColumnStretch(self.folders_grid_layout.columnCount(), 1)
 
     def show_images_view(self, folder_path):
         self.current_folder_path = folder_path
@@ -703,6 +708,7 @@ class ViewScreenshotsWindow(QMainWindow):
             # 创建一个垂直布局来放置图片和文件名
             item_layout = QVBoxLayout()
             item_layout.setAlignment(Qt.AlignCenter)
+            item_layout.setSpacing(5) # 增加图片和名称之间的间距
 
             image_label = QLabel()
             image_label.setFixedSize(200, 150) # 预览图大小
@@ -735,6 +741,7 @@ class ViewScreenshotsWindow(QMainWindow):
             container_widget.setCursor(Qt.PointingHandCursor) # 设置手型光标
             container_widget.mousePressEvent = lambda event, path=image_path: self.open_image_fullscreen(path)
 
+            container_widget.setFixedSize(220, 200) # 增加高度以适应更大的间距和名称
             self.images_grid_layout.addWidget(container_widget, row, col)
             
             col += 1
@@ -742,8 +749,10 @@ class ViewScreenshotsWindow(QMainWindow):
                 col = 0
                 row += 1
         
+        # 确保内容顶部对齐
         self.images_grid_layout.setRowStretch(row, 1)
-        self.images_grid_layout.setColumnStretch(col, 1)
+        # 将所有剩余的水平空间推到最右侧，确保内容靠左排列
+        self.images_grid_layout.setColumnStretch(self.images_grid_layout.columnCount(), 1)
 
     def open_image_fullscreen(self, image_path):
         # 清除旧的图片
