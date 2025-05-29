@@ -132,7 +132,7 @@ def get_process_icon(folder_name): # 将参数名改为 folder_name 以更清晰
                         else:
                             print(f"从 '{exe_path}' 提取图标失败: win32gui.ExtractIcon 返回空句柄。")
                     except Exception as icon_e:
-                        print(f"从 '{exe_path}' 提取图标失败: {icon_e}")
+                        print(f"从 '{exe_path}' 提取并保存图标失败: {icon_e}")
                 break
     except Exception as e:
         print(f"获取进程 '{process_name_for_live_lookup}' 图标失败: {e}")
@@ -479,8 +479,8 @@ class SettingsWindow(QMainWindow):
                 QMessageBox.critical(self, "错误", f"保存按键失败: {e}")
                 print(f"保存按键失败: {e}")
         else:
-            QMessageBox.warning(self, "警告", "按键绑定不能为空。")
-
+            QMessageBox.warning(self.parent(), "警告", "按键绑定不能为空。") # 修正：使用self.parent()
+            
     def browse_directory(self):
         folder_selected = QFileDialog.getExistingDirectory(self, "选择截图保存目录", self.path_entry.text())
         if folder_selected:
@@ -602,6 +602,7 @@ class ViewScreenshotsWindow(QMainWindow):
         self.folders_scroll_area.setWidget(self.folders_content)
         self.folders_grid_layout = QGridLayout(self.folders_content)
         self.folders_grid_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop) # 显式设置对齐方式
+        self.folders_grid_layout.setSpacing(10) # 新增：设置网格布局间距
         self.folders_view_layout.addWidget(self.folders_scroll_area)
         self.stacked_widget.addWidget(self.folders_view_widget)
 
@@ -624,6 +625,7 @@ class ViewScreenshotsWindow(QMainWindow):
         self.images_scroll_area.setWidget(self.images_content)
         self.images_grid_layout = QGridLayout(self.images_content)
         self.images_grid_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop) # 显式设置对齐方式
+        self.images_grid_layout.setSpacing(10) # 新增：设置网格布局间距
         self.images_view_layout.addWidget(self.images_scroll_area)
         self.stacked_widget.addWidget(self.images_view_widget)
 
@@ -652,7 +654,12 @@ class ViewScreenshotsWindow(QMainWindow):
         self.fullscreen_image_view_layout.addWidget(self.fullscreen_graphics_view)
         self.stacked_widget.addWidget(self.fullscreen_image_view_widget)
 
-        self.current_image_pixmap_item = None # 用于存储当前显示的QGraphicsPixmapItem
+        self.current_image_pixmap_item = None
+
+        # 新增：存储文件夹和图片数据
+        self.folder_items_data = []
+        self.image_items_data = []
+        self.current_folder_path = "" # 确保这个变量被初始化
 
         self.load_screenshot_folders() # 初始加载文件夹视图
         self.show_folders_view() # 默认显示文件夹视图
@@ -668,7 +675,8 @@ class ViewScreenshotsWindow(QMainWindow):
         self.stacked_widget.setCurrentWidget(self.images_view_widget)
         # 不需要重新加载图片，因为current_folder_path已经设置，并且图片列表应该还在
 
-    def load_screenshot_folders(self):
+    # 新增：用于重新填充文件夹网格的方法
+    def _repopulate_folders_grid(self):
         # 清除现有内容
         while self.folders_grid_layout.count():
             item = self.folders_grid_layout.takeAt(0)
@@ -676,63 +684,57 @@ class ViewScreenshotsWindow(QMainWindow):
             if widget:
                 widget.deleteLater()
 
-        screenshot_base_dir = BASE_SCREENSHOT_DIR
-        if CUSTOM_SCREENSHOT_DIR and os.path.isdir(CUSTOM_SCREENSHOT_DIR):
-            screenshot_base_dir = CUSTOM_SCREENSHOT_DIR
+        if not self.folder_items_data:
+            return
 
-        print(f"DEBUG: 截图根目录: {screenshot_base_dir}")
-        folders = [f for f in os.listdir(screenshot_base_dir) if os.path.isdir(os.path.join(screenshot_base_dir, f))]
-        print(f"DEBUG: 识别到的截图文件夹: {folders}")
-        
+        # 计算每行可以容纳的列数
+        item_width = 120 # 估算的项目宽度
+        scroll_area_width = self.folders_scroll_area.viewport().width()
+        if scroll_area_width <= 0:
+            cols = 1
+        else:
+            cols = max(1, scroll_area_width // item_width)
+
         row = 0
         col = 0
-        for folder_name in sorted(folders):
-            folder_path = os.path.join(screenshot_base_dir, folder_name)
-            
-            # 创建一个垂直布局来放置图标和文本
+        for folder_name, folder_path in self.folder_items_data:
             item_layout = QVBoxLayout()
             item_layout.setAlignment(Qt.AlignCenter)
+            item_layout.setSpacing(5)
 
-            # 获取进程图标
             process_icon = get_process_icon(folder_name)
             icon_label = QLabel()
-            icon_label.setFixedSize(64, 64) # 图标大小
+            icon_label.setFixedSize(64, 64)
             icon_label.setAlignment(Qt.AlignCenter)
             icon_label.setPixmap(process_icon.pixmap(QSize(64, 64)))
             item_layout.addWidget(icon_label)
 
             name_label = QLabel(folder_name)
-            name_label.setObjectName("folder_name_label") # 添加对象名
+            name_label.setObjectName("folder_name_label")
             name_label.setAlignment(Qt.AlignCenter)
             item_layout.addWidget(name_label)
 
-            # 将布局添加到网格布局中
-            container_widget = QFrame() # 使用QFrame作为容器
-            container_widget.setObjectName("itemFrame") # 设置对象名以便QSS选择器使用
+            container_widget = QFrame()
+            container_widget.setObjectName("itemFrame")
             container_widget.setLayout(item_layout)
-            container_widget.setCursor(Qt.PointingHandCursor) # 设置手型光标
+            container_widget.setCursor(Qt.PointingHandCursor)
             container_widget.mousePressEvent = lambda event, path=folder_path: self.show_images_view(path)
 
-            container_widget.setFixedSize(120, 120) # 设置固定大小，模拟大图标
+            container_widget.setMinimumSize(100, 100)
+            container_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
             self.folders_grid_layout.addWidget(container_widget, row, col)
             
             col += 1
-            if col >= 4: # 每行显示4个文件夹
+            if col >= cols:
                 col = 0
                 row += 1
         
-        # 确保内容顶部对齐
         self.folders_grid_layout.setRowStretch(row, 1)
-        # 将所有剩余的水平空间推到最右侧，确保内容靠左排列
         self.folders_grid_layout.setColumnStretch(self.folders_grid_layout.columnCount(), 1)
 
-    def show_images_view(self, folder_path):
-        self.current_folder_path = folder_path
-        self.setWindowTitle(f"查看截图 - {os.path.basename(folder_path)}")
-        self.stacked_widget.setCurrentWidget(self.images_view_widget)
-        self.load_images_for_folder(folder_path)
-
-    def load_images_for_folder(self, folder_path):
+    # 新增：用于重新填充图片网格的方法
+    def _repopulate_images_grid(self):
         # 清除现有内容
         while self.images_grid_layout.count():
             item = self.images_grid_layout.takeAt(0)
@@ -740,25 +742,27 @@ class ViewScreenshotsWindow(QMainWindow):
             if widget:
                 widget.deleteLater()
 
-        print(f"DEBUG: 当前图片文件夹路径: {folder_path}")
-        image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')) and f.lower() != 'icon.png']
-        print(f"DEBUG: 识别到的图片文件: {image_files}")
-        
+        if not self.image_items_data:
+            return
+
+        # 计算每行可以容纳的列数
+        item_width = 220
+        scroll_area_width = self.images_scroll_area.viewport().width()
+        if scroll_area_width <= 0:
+            cols = 1
+        else:
+            cols = max(1, scroll_area_width // item_width)
+
         row = 0
         col = 0
-        for image_name in sorted(image_files):
-            image_path = os.path.join(folder_path, image_name)
-            
-            # 创建一个垂直布局来放置图片和文件名
+        for image_name, image_path in self.image_items_data:
             item_layout = QVBoxLayout()
             item_layout.setAlignment(Qt.AlignCenter)
-            item_layout.setSpacing(5) # 增加图片和名称之间的间距
+            item_layout.setSpacing(5)
 
             image_label = QLabel()
-            image_label.setFixedSize(200, 150) # 预览图大小
+            image_label.setFixedSize(200, 150)
             image_label.setAlignment(Qt.AlignCenter)
-            # 移除这里的内联样式，使用QFrame的样式
-            # image_label.setStyleSheet("border: 1px solid #e0e0e0; border-radius: 5px;") 
 
             try:
                 pixmap = QPixmap(image_path)
@@ -772,31 +776,76 @@ class ViewScreenshotsWindow(QMainWindow):
                 print(f"加载图片 {image_path} 失败: {e}")
 
             name_label = QLabel(image_name)
-            name_label.setObjectName("image_name_label") # 添加对象名
+            name_label.setObjectName("image_name_label")
             name_label.setAlignment(Qt.AlignCenter)
-            name_label.setWordWrap(True) # 自动换行
+            name_label.setWordWrap(True)
             item_layout.addWidget(image_label)
             item_layout.addWidget(name_label)
 
-            # 将布局添加到网格布局中
-            container_widget = QFrame() # 使用QFrame作为容器
-            container_widget.setObjectName("itemFrame") # 设置对象名以便QSS选择器使用
+            container_widget = QFrame()
+            container_widget.setObjectName("itemFrame")
             container_widget.setLayout(item_layout)
-            container_widget.setCursor(Qt.PointingHandCursor) # 设置手型光标
+            container_widget.setCursor(Qt.PointingHandCursor)
             container_widget.mousePressEvent = lambda event, path=image_path: self.open_image_fullscreen(path)
 
-            container_widget.setFixedSize(220, 200) # 增加高度以适应更大的间距和名称
+            container_widget.setMinimumSize(200, 180)
+            container_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
             self.images_grid_layout.addWidget(container_widget, row, col)
             
             col += 1
-            if col >= 4: # 每行显示4张图片
+            if col >= cols:
                 col = 0
                 row += 1
         
-        # 确保内容顶部对齐
         self.images_grid_layout.setRowStretch(row, 1)
-        # 将所有剩余的水平空间推到最右侧，确保内容靠左排列
         self.images_grid_layout.setColumnStretch(self.images_grid_layout.columnCount(), 1)
+
+    def _on_folders_scroll_area_resized(self):
+        """当文件夹滚动区域大小改变时重新填充网格。"""
+        self._repopulate_folders_grid()
+
+    def _on_images_scroll_area_resized(self):
+        """当图片滚动区域大小改变时重新填充网格。"""
+        self._repopulate_images_grid()
+
+    def load_screenshot_folders(self):
+        # 清除现有数据
+        self.folder_items_data = []
+
+        screenshot_base_dir = BASE_SCREENSHOT_DIR
+        if CUSTOM_SCREENSHOT_DIR and os.path.isdir(CUSTOM_SCREENSHOT_DIR):
+            screenshot_base_dir = CUSTOM_SCREENSHOT_DIR
+
+        print(f"DEBUG: 截图根目录: {screenshot_base_dir}")
+        folders = [f for f in os.listdir(screenshot_base_dir) if os.path.isdir(os.path.join(screenshot_base_dir, f))]
+        print(f"DEBUG: 识别到的截图文件夹: {folders}")
+        
+        for folder_name in sorted(folders):
+            folder_path = os.path.join(screenshot_base_dir, folder_name)
+            self.folder_items_data.append((folder_name, folder_path))
+        
+        self._repopulate_folders_grid() # 重新填充网格
+
+    def show_images_view(self, folder_path):
+        self.current_folder_path = folder_path
+        self.setWindowTitle(f"查看截图 - {os.path.basename(folder_path)}")
+        self.stacked_widget.setCurrentWidget(self.images_view_widget)
+        self.load_images_for_folder(folder_path)
+
+    def load_images_for_folder(self, folder_path):
+        # 清除现有数据
+        self.image_items_data = []
+
+        print(f"DEBUG: 当前图片文件夹路径: {folder_path}")
+        image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')) and f.lower() != 'icon.png']
+        print(f"DEBUG: 识别到的图片文件: {image_files}")
+        
+        for image_name in sorted(image_files):
+            image_path = os.path.join(folder_path, image_name)
+            self.image_items_data.append((image_name, image_path))
+        
+        self._repopulate_images_grid() # 重新填充网格
 
     def open_image_fullscreen(self, image_path):
         # 清除旧的图片
@@ -829,6 +878,16 @@ class ViewScreenshotsWindow(QMainWindow):
                 self.fullscreen_graphics_view.scale(1 / zoom_factor, 1 / zoom_factor)
         else:
             super().wheelEvent(event) # 如果不在全屏视图，将事件传递给父类
+
+    def resizeEvent(self, event):
+        """
+        当窗口大小改变时，重新布局网格。
+        """
+        super().resizeEvent(event)
+        if self.stacked_widget.currentWidget() == self.folders_view_widget:
+            self._repopulate_folders_grid()
+        elif self.stacked_widget.currentWidget() == self.images_view_widget:
+            self._repopulate_images_grid()
 
 class F10CaptureApp(QMainWindow):
     def __init__(self):
