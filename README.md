@@ -1,4 +1,4 @@
-# F10 截图工具
+# 到处截图工具
 
 鉴于steam可以直接一个键截图，而非steam游戏（比如原神等）未必可以，所以开发了一个截图程序，可以不必将本地游戏添加到steam再截图（好耶！）
 
@@ -62,7 +62,7 @@
 ## 📂 项目结构
 
 ```
-F12Capture/
+F10Capture/
 ├── config.ini
 ├── gui_app.py
 ├── icon.png
@@ -91,13 +91,13 @@ F12Capture/
 
 ### 1.直接启动(普通用户首推！！)
 
-查看release，链接：[release地址](https://github.com/hulahulahei20/F12Capture/releases/tag/1.0)
+查看release，链接：[最新release地址](https://github.com/hulahulahei20/F10Capture/releases/tag/2.0)
 
 ### 2. 命令行启动 (推荐开发者调试)
 
 这种方式适合熟悉命令行的开发者，可以清晰地看到程序的输出和潜在的错误信息。
 
-1.  **打开命令行**: 在项目根目录（`F12Capture` 文件夹）下，按住 `Shift` 键并右键点击空白处，选择“在此处打开 PowerShell 窗口”或“在此处打开命令提示符”。
+1.  **打开命令行**: 在项目根目录（`F10Capture` 文件夹）下，按住 `Shift` 键并右键点击空白处，选择“在此处打开 PowerShell 窗口”或“在此处打开命令提示符”。
 2.  **安装依赖**: 如果是首次运行或依赖有更新，请运行以下命令安装所需库：
     ```bash
     pip install --upgrade wheel
@@ -112,14 +112,14 @@ F12Capture/
 
 `start.bat` 脚本会自动检查 Python 环境、安装依赖并启动应用程序。**此方式会请求管理员权限**，并显示安装和启动过程中的信息，适合开发者调试。
 
-1.  **双击运行**: 在 `F12Capture` 文件夹中，直接双击 `start.bat` 文件。
+1.  **双击运行**: 在 `F10Capture` 文件夹中，直接双击 `start.bat` 文件。
 2.  **等待**: 脚本会自动检查并安装依赖，然后启动应用程序。
 
 ### 4. 双击 `launch.vbs` (推荐普通用户直接启动)
 
 `launch.vbs` 脚本会以静默方式启动 `start.bat`，不会显示命令行窗口，提供更简洁的用户体验。
 
-1.  **双击运行**: 在 `F12Capture` 文件夹中，直接双击 `launch.vbs` 文件。
+1.  **双击运行**: 在 `F10Capture` 文件夹中，直接双击 `launch.vbs` 文件。
 2.  **后台运行**: 应用程序将在后台静默启动，并在系统托盘中显示图标。
 
 
@@ -152,7 +152,7 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 例如：
 ```
-F12Capture/
+F10Capture/
 ├── ScreenShots/
 │   ├── Chrome/
 │   │   ├── 20231026_143000.png
