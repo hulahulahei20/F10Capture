@@ -17,6 +17,7 @@ import win32event
 import winerror
 from playsound import playsound # 导入playsound库
 import ctypes # 导入ctypes
+import time # 导入time模块用于模拟耗时操作或延迟
 
 from ctypes.wintypes import MSG # 导入MSG结构体
 
@@ -27,10 +28,15 @@ from PySide6.QtWidgets import (
     QGraphicsScene, QGraphicsView, QGraphicsPixmapItem
 )
 from PySide6.QtGui import QIcon, QAction, QKeySequence, QPixmap, QImage, QPainter
-from PySide6.QtCore import Qt, QThread, Signal, QSettings, QSize, QDir
+from PySide6.QtCore import Qt, QThread, Signal, QSettings, QSize, QDir, QRunnable, QThreadPool
 
 # 配置文件路径
 CONFIG_FILE = "config.ini"
+
+# 全局线程池，用于管理后台任务
+thread_pool = QThreadPool.globalInstance()
+thread_pool.setMaxThreadCount(os.cpu_count() or 4) # 设置线程池最大线程数，默认为CPU核心数或4
+print(f"线程池已初始化，最大线程数: {thread_pool.maxThreadCount()}")
 
 # 互斥量名称，用于实现单例模式
 MUTEX_NAME = "F10CaptureAppMutex"
@@ -88,17 +94,23 @@ def save_process_icon(process_name, target_dir):
         print(f"保存进程 '{process_name}' 图标失败: {e}")
     return False
 
-def get_process_icon(folder_name): # 将参数名改为 folder_name 以更清晰地表示它现在是文件夹名
+# 进程图标缓存
+_process_icon_cache = {}
+
+def get_process_icon(folder_name):
     """
     根据文件夹名称（通常是进程名称）获取其对应的图标。
-    首先尝试从文件夹中加载预保存的图标，如果失败则尝试从实时进程中提取，
+    首先尝试从缓存加载，然后从文件夹中加载预保存的图标，如果失败则尝试从实时进程中提取，
     最后回退到默认图标。
     """
-    default_icon_path = "icon.png" # 默认图标路径
+    if folder_name in _process_icon_cache:
+        print(f"从缓存加载图标: {folder_name}")
+        return _process_icon_cache[folder_name]
+
+    default_icon_path = "icon.png"
     if hasattr(sys, '_MEIPASS'):
         default_icon_path = os.path.join(sys._MEIPASS, default_icon_path)
 
-    # 1. 尝试从文件夹中加载预保存的图标
     screenshot_base_dir = BASE_SCREENSHOT_DIR
     if CUSTOM_SCREENSHOT_DIR and os.path.isdir(CUSTOM_SCREENSHOT_DIR):
         screenshot_base_dir = CUSTOM_SCREENSHOT_DIR
@@ -106,16 +118,19 @@ def get_process_icon(folder_name): # 将参数名改为 folder_name 以更清晰
     folder_full_path = os.path.join(screenshot_base_dir, folder_name)
     icon_in_folder_path = os.path.join(folder_full_path, "icon.png")
 
+    # 1. 尝试从文件夹中加载预保存的图标
     if os.path.exists(icon_in_folder_path):
         pixmap = QPixmap(icon_in_folder_path)
         if not pixmap.isNull():
-            print(f"从文件夹 '{folder_name}' 加载预保存图标。")
-            return QIcon(pixmap)
+            icon = QIcon(pixmap)
+            _process_icon_cache[folder_name] = icon
+            print(f"从文件夹 '{folder_name}' 加载预保存图标并缓存。")
+            return icon
         else:
             print(f"警告: 无法从 '{icon_in_folder_path}' 加载图标，尝试从实时进程获取。")
 
     # 2. 如果文件夹中没有预保存的图标，或者加载失败，则尝试从实时进程中提取
-    process_name_for_live_lookup = folder_name # 这里的 folder_name 就是进程名
+    process_name_for_live_lookup = folder_name
     try:
         for proc in psutil.process_iter(['name', 'exe']):
             if proc.info['name'] and proc.info['name'].lower() == process_name_for_live_lookup.lower() + ".exe":
@@ -127,8 +142,10 @@ def get_process_icon(folder_name): # 将参数名改为 folder_name 以更清晰
                             pixmap = QPixmap.fromImage(QImage.fromHICON(hicon))
                             win32gui.DestroyIcon(hicon)
                             if not pixmap.isNull():
-                                print(f"从实时进程 '{process_name_for_live_lookup}' 提取图标。")
-                                return QIcon(pixmap)
+                                icon = QIcon(pixmap)
+                                _process_icon_cache[folder_name] = icon
+                                print(f"从实时进程 '{process_name_for_live_lookup}' 提取图标并缓存。")
+                                return icon
                         else:
                             print(f"从 '{exe_path}' 提取图标失败: win32gui.ExtractIcon 返回空句柄。")
                     except Exception as icon_e:
@@ -138,13 +155,36 @@ def get_process_icon(folder_name): # 将参数名改为 folder_name 以更清晰
         print(f"获取进程 '{process_name_for_live_lookup}' 图标失败: {e}")
     
     # 3. 如果上述方法都失败，返回默认图标
-    print(f"未能为 '{folder_name}' 获取特定图标，使用默认图标。")
-    return QIcon(default_icon_path)
+    print(f"未能为 '{folder_name}' 获取特定图标，使用默认图标并缓存。")
+    default_icon = QIcon(default_icon_path)
+    _process_icon_cache[folder_name] = default_icon
+    return default_icon
+
+class ScreenshotWorker(QRunnable):
+    """
+    用于在后台执行截图后处理任务（保存图标和播放音效）的QRunnable。
+    """
+    def __init__(self, process_name, screenshot_dir):
+        super().__init__()
+        self.process_name = process_name
+        self.screenshot_dir = screenshot_dir
+
+    def run(self):
+        # 1. 保存进程图标
+        save_process_icon(self.process_name, self.screenshot_dir)
+        
+        # 2. 播放截图音效
+        try:
+            playsound('screenshot_sound.wav')
+            print("截图音效已播放。")
+        except Exception as sound_e:
+            print(f"播放截图音效失败: {sound_e}")
 
 def take_screenshot_windows_api():
     """
     使用Windows API根据鼠标当前位置截取对应屏幕并保存到本地文件。
     如果Windows API截图失败，则尝试使用ImageGrab进行全屏截图。
+    截图后处理（保存图标和播放音效）将提交到线程池异步执行。
     """
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -162,9 +202,6 @@ def take_screenshot_windows_api():
 
     screenshot_dir = os.path.join(final_screenshot_base_dir, process_name)
     os.makedirs(screenshot_dir, exist_ok=True)
-
-    # 在保存截图之前，尝试保存进程图标
-    save_process_icon(process_name, screenshot_dir)
 
     filename = os.path.join(screenshot_dir, f"{timestamp}.png")
 
@@ -226,12 +263,9 @@ def take_screenshot_windows_api():
         try:
             img.save(filename)
             print(f"截图已保存到: {filename}")
-            # 播放截图音效
-            try:
-                playsound('screenshot_sound.wav')
-                print("截图音效已播放。")
-            except Exception as sound_e:
-                print(f"播放截图音效失败: {sound_e}")
+            # 将保存图标和播放音效的任务提交到线程池
+            worker = ScreenshotWorker(process_name, screenshot_dir)
+            thread_pool.start(worker)
         except Exception as save_e:
             print(f"保存截图文件失败: {save_e}")
     else:
@@ -522,6 +556,49 @@ class SettingsWindow(QMainWindow):
         event.accept()
 
 from PySide6.QtWidgets import QStackedWidget # 导入QStackedWidget
+from PySide6.QtCore import QObject # 导入QObject
+
+class IconLoader(QObject, QRunnable): # 继承QObject和QRunnable
+    """
+    用于在后台线程中加载进程图标的QRunnable。
+    """
+    icon_loaded = Signal(str, QIcon) # 信号：folder_name, QIcon
+
+    def __init__(self, folder_name):
+        QObject.__init__(self) # 初始化QObject
+        QRunnable.__init__(self) # 初始化QRunnable
+        self.folder_name = folder_name
+        self.setAutoDelete(True) # 任务完成后自动删除
+
+    def run(self):
+        icon = get_process_icon(self.folder_name)
+        self.icon_loaded.emit(self.folder_name, icon)
+
+class ImageThumbnailLoader(QObject, QRunnable): # 继承QObject和QRunnable
+    """
+    用于在后台线程中加载图片缩略图的QRunnable。
+    """
+    thumbnail_loaded = Signal(str, QPixmap) # 信号：image_path, QPixmap
+
+    def __init__(self, image_path, size: QSize):
+        QObject.__init__(self) # 初始化QObject
+        QRunnable.__init__(self) # 初始化QRunnable
+        self.image_path = image_path
+        self.size = size
+        self.setAutoDelete(True) # 任务完成后自动删除
+
+    def run(self):
+        try:
+            pixmap = QPixmap(self.image_path)
+            if not pixmap.isNull():
+                pixmap = pixmap.scaled(self.size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.thumbnail_loaded.emit(self.image_path, pixmap)
+            else:
+                print(f"警告: 无法加载图片 {self.image_path} 进行缩略图生成。")
+                self.thumbnail_loaded.emit(self.image_path, QPixmap()) # 发送空Pixmap
+        except Exception as e:
+            print(f"生成图片 {self.image_path} 缩略图失败: {e}")
+            self.thumbnail_loaded.emit(self.image_path, QPixmap()) # 发送空Pixmap
 
 class ViewScreenshotsWindow(QMainWindow):
     def __init__(self, parent=None):
@@ -661,13 +738,48 @@ class ViewScreenshotsWindow(QMainWindow):
         self.image_items_data = []
         self.current_folder_path = "" # 确保这个变量被初始化
 
+        # 存储 QLabel 引用，以便异步更新
+        self.icon_labels = {}
+        self.image_labels = {}
+
+        # 信号连接现在在每次创建IconLoader和ImageThumbnailLoader实例时进行，
+        # 因此不再需要在这里创建临时的signal_proxy。
+
         self.load_screenshot_folders() # 初始加载文件夹视图
         self.show_folders_view() # 默认显示文件夹视图
+
+    def _update_folder_icon(self, folder_name, icon):
+        """槽函数：接收异步加载的图标并更新对应的QLabel。"""
+        if folder_name in self.icon_labels:
+            label = self.icon_labels[folder_name]
+            if not icon.isNull():
+                label.setPixmap(icon.pixmap(QSize(64, 64)))
+            else:
+                # 如果图标加载失败，可以显示一个默认的占位符
+                label.setText("?")
+                label.setStyleSheet("font-size: 30px; color: gray;")
+            print(f"UI更新: 文件夹 '{folder_name}' 的图标已更新。")
+
+    def _update_image_thumbnail(self, image_path, pixmap):
+        """槽函数：接收异步加载的缩略图并更新对应的QLabel。"""
+        if image_path in self.image_labels:
+            label = self.image_labels[image_path]
+            if not pixmap.isNull():
+                label.setPixmap(pixmap)
+            else:
+                # 如果缩略图加载失败，可以显示一个默认的占位符
+                label.setText("无法加载")
+                label.setStyleSheet("font-size: 12px; color: gray;")
+            print(f"UI更新: 图片 '{os.path.basename(image_path)}' 的缩略图已更新。")
 
     def show_folders_view(self):
         self.setWindowTitle("查看截图")
         self.stacked_widget.setCurrentWidget(self.folders_view_widget)
-        self.load_screenshot_folders() # 每次返回时刷新文件夹列表
+        # 只有在第一次显示或需要强制刷新时才加载文件夹，避免反复切换时的重复加载
+        if not self.folder_items_data: # 或者可以添加一个标志位 self._folders_loaded = False
+            self.load_screenshot_folders()
+        # 清空旧的引用，防止内存泄漏
+        self.icon_labels.clear()
 
     def show_images_view_from_fullscreen(self):
         # 从全屏图片视图返回到图片列表视图
@@ -702,12 +814,18 @@ class ViewScreenshotsWindow(QMainWindow):
             item_layout.setAlignment(Qt.AlignCenter)
             item_layout.setSpacing(5)
 
-            process_icon = get_process_icon(folder_name)
-            icon_label = QLabel()
+            icon_label = QLabel("加载中...") # 占位符
             icon_label.setFixedSize(64, 64)
             icon_label.setAlignment(Qt.AlignCenter)
-            icon_label.setPixmap(process_icon.pixmap(QSize(64, 64)))
+            icon_label.setStyleSheet("font-size: 10px; color: gray;") # 占位符样式
             item_layout.addWidget(icon_label)
+            self.icon_labels[folder_name] = icon_label # 存储引用
+
+            # 提交图标加载任务到线程池
+            loader = IconLoader(folder_name)
+            # 必须在IconLoader实例上连接信号，而不是在类上
+            loader.icon_loaded.connect(self._update_folder_icon)
+            thread_pool.start(loader)
 
             name_label = QLabel(folder_name)
             name_label.setObjectName("folder_name_label")
@@ -759,26 +877,23 @@ class ViewScreenshotsWindow(QMainWindow):
             item_layout.setAlignment(Qt.AlignCenter)
             item_layout.setSpacing(5)
 
-            image_label = QLabel()
+            image_label = QLabel("加载中...") # 占位符
             image_label.setFixedSize(200, 150)
             image_label.setAlignment(Qt.AlignCenter)
+            image_label.setStyleSheet("font-size: 10px; color: gray;") # 占位符样式
+            item_layout.addWidget(image_label)
+            self.image_labels[image_path] = image_label # 存储引用
 
-            try:
-                pixmap = QPixmap(image_path)
-                if not pixmap.isNull():
-                    pixmap = pixmap.scaled(image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    image_label.setPixmap(pixmap)
-                else:
-                    image_label.setText("无法加载图片")
-            except Exception as e:
-                image_label.setText(f"加载失败: {e}")
-                print(f"加载图片 {image_path} 失败: {e}")
+            # 提交缩略图加载任务到线程池
+            loader = ImageThumbnailLoader(image_path, image_label.size())
+            # 必须在ImageThumbnailLoader实例上连接信号，而不是在类上
+            loader.thumbnail_loaded.connect(self._update_image_thumbnail)
+            thread_pool.start(loader)
 
             name_label = QLabel(image_name)
             name_label.setObjectName("image_name_label")
             name_label.setAlignment(Qt.AlignCenter)
             name_label.setWordWrap(True)
-            item_layout.addWidget(image_label)
             item_layout.addWidget(name_label)
 
             container_widget = QFrame()
