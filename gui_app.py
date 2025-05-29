@@ -62,43 +62,84 @@ def get_foreground_process_name():
         print(f"获取前景进程名称失败: {e}")
         return "Erro  rProcess"
 
-def get_process_icon(process_name):
+def save_process_icon(process_name, target_dir):
     """
-    根据进程名称获取其可执行文件的图标。
-    如果找不到对应的进程或图标，则返回一个默认图标。
+    根据进程名称获取其可执行文件的图标并保存到指定目录。
     """
-    icon_path = "icon.png" # 默认图标路径
-    if hasattr(sys, '_MEIPASS'):
-        icon_path = os.path.join(sys._MEIPASS, icon_path)
-
+    icon_filename = os.path.join(target_dir, "icon.png")
     try:
-        # 尝试找到进程的可执行文件路径
         for proc in psutil.process_iter(['name', 'exe']):
             if proc.info['name'] and proc.info['name'].lower() == process_name.lower() + ".exe":
                 exe_path = proc.info['exe']
                 if exe_path and os.path.exists(exe_path):
-                    # 提取图标
                     try:
-                        # 尝试使用 win32gui.ExtractIcon 提取图标
-                        hicon = win32gui.ExtractIcon(0, exe_path, 0) # 提取第一个图标
+                        hicon = win32gui.ExtractIcon(0, exe_path, 0)
+                        if hicon:
+                            pixmap = QPixmap.fromImage(QImage.fromHICON(hicon))
+                            if not pixmap.isNull():
+                                pixmap.save(icon_filename, "PNG")
+                                print(f"进程 '{process_name}' 的图标已保存到: {icon_filename}")
+                            win32gui.DestroyIcon(hicon)
+                            return True
+                    except Exception as icon_e:
+                        print(f"从 '{exe_path}' 提取并保存图标失败: {icon_e}")
+                break
+    except Exception as e:
+        print(f"保存进程 '{process_name}' 图标失败: {e}")
+    return False
+
+def get_process_icon(folder_name): # 将参数名改为 folder_name 以更清晰地表示它现在是文件夹名
+    """
+    根据文件夹名称（通常是进程名称）获取其对应的图标。
+    首先尝试从文件夹中加载预保存的图标，如果失败则尝试从实时进程中提取，
+    最后回退到默认图标。
+    """
+    default_icon_path = "icon.png" # 默认图标路径
+    if hasattr(sys, '_MEIPASS'):
+        default_icon_path = os.path.join(sys._MEIPASS, default_icon_path)
+
+    # 1. 尝试从文件夹中加载预保存的图标
+    screenshot_base_dir = BASE_SCREENSHOT_DIR
+    if CUSTOM_SCREENSHOT_DIR and os.path.isdir(CUSTOM_SCREENSHOT_DIR):
+        screenshot_base_dir = CUSTOM_SCREENSHOT_DIR
+    
+    folder_full_path = os.path.join(screenshot_base_dir, folder_name)
+    icon_in_folder_path = os.path.join(folder_full_path, "icon.png")
+
+    if os.path.exists(icon_in_folder_path):
+        pixmap = QPixmap(icon_in_folder_path)
+        if not pixmap.isNull():
+            print(f"从文件夹 '{folder_name}' 加载预保存图标。")
+            return QIcon(pixmap)
+        else:
+            print(f"警告: 无法从 '{icon_in_folder_path}' 加载图标，尝试从实时进程获取。")
+
+    # 2. 如果文件夹中没有预保存的图标，或者加载失败，则尝试从实时进程中提取
+    process_name_for_live_lookup = folder_name # 这里的 folder_name 就是进程名
+    try:
+        for proc in psutil.process_iter(['name', 'exe']):
+            if proc.info['name'] and proc.info['name'].lower() == process_name_for_live_lookup.lower() + ".exe":
+                exe_path = proc.info['exe']
+                if exe_path and os.path.exists(exe_path):
+                    try:
+                        hicon = win32gui.ExtractIcon(0, exe_path, 0)
                         if hicon:
                             pixmap = QPixmap.fromImage(QImage.fromHICON(hicon))
                             win32gui.DestroyIcon(hicon)
                             if not pixmap.isNull():
+                                print(f"从实时进程 '{process_name_for_live_lookup}' 提取图标。")
                                 return QIcon(pixmap)
                         else:
-                            # 如果 ExtractIcon 失败，尝试提取其他索引的图标
-                            # 或者直接跳过，让函数返回默认图标
                             print(f"从 '{exe_path}' 提取图标失败: win32gui.ExtractIcon 返回空句柄。")
                     except Exception as icon_e:
                         print(f"从 '{exe_path}' 提取图标失败: {icon_e}")
-                # 无论是否成功提取图标，只要找到对应的进程，就跳出循环
-                break # 修正：将break放在这里，确保在找到进程后退出循环
+                break
     except Exception as e:
-        print(f"获取进程 '{process_name}' 图标失败: {e}")
+        print(f"获取进程 '{process_name_for_live_lookup}' 图标失败: {e}")
     
-    # 如果获取失败，返回默认图标
-    return QIcon(icon_path)
+    # 3. 如果上述方法都失败，返回默认图标
+    print(f"未能为 '{folder_name}' 获取特定图标，使用默认图标。")
+    return QIcon(default_icon_path)
 
 def take_screenshot_windows_api():
     """
@@ -121,6 +162,9 @@ def take_screenshot_windows_api():
 
     screenshot_dir = os.path.join(final_screenshot_base_dir, process_name)
     os.makedirs(screenshot_dir, exist_ok=True)
+
+    # 在保存截图之前，尝试保存进程图标
+    save_process_icon(process_name, screenshot_dir)
 
     filename = os.path.join(screenshot_dir, f"{timestamp}.png")
 
@@ -697,7 +741,7 @@ class ViewScreenshotsWindow(QMainWindow):
                 widget.deleteLater()
 
         print(f"DEBUG: 当前图片文件夹路径: {folder_path}")
-        image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+        image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')) and f.lower() != 'icon.png']
         print(f"DEBUG: 识别到的图片文件: {image_files}")
         
         row = 0
