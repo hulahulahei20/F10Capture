@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QGraphicsScene, QGraphicsView, QGraphicsPixmapItem
 )
 from PySide6.QtGui import QIcon, QAction, QKeySequence, QPixmap, QImage, QPainter
-from PySide6.QtCore import Qt, QThread, Signal, QSettings, QSize, QDir, QRunnable, QThreadPool
+from PySide6.QtCore import Qt, QThread, Signal, QSettings, QSize, QDir, QRunnable, QThreadPool, QTimer
 
 # 配置文件路径
 CONFIG_FILE = "config.ini"
@@ -745,6 +745,12 @@ class ViewScreenshotsWindow(QMainWindow):
         # 信号连接现在在每次创建IconLoader和ImageThumbnailLoader实例时进行，
         # 因此不再需要在这里创建临时的signal_proxy。
 
+        # 延迟重新布局的定时器
+        self.resize_timer = QTimer(self)
+        self.resize_timer.setSingleShot(True)
+        self.resize_timer.setInterval(200) # 200毫秒延迟
+        self.resize_timer.timeout.connect(self._deferred_repopulate_grid)
+
         self.load_screenshot_folders() # 初始加载文件夹视图
         self.show_folders_view() # 默认显示文件夹视图
 
@@ -915,13 +921,24 @@ class ViewScreenshotsWindow(QMainWindow):
         self.images_grid_layout.setRowStretch(row, 1)
         self.images_grid_layout.setColumnStretch(self.images_grid_layout.columnCount(), 1)
 
+    def _deferred_repopulate_grid(self):
+        """
+        延迟执行的网格重新填充方法，由定时器触发。
+        """
+        if self.stacked_widget.currentWidget() == self.folders_view_widget:
+            self._repopulate_folders_grid()
+        elif self.stacked_widget.currentWidget() == self.images_view_widget:
+            self._repopulate_images_grid()
+
     def _on_folders_scroll_area_resized(self):
         """当文件夹滚动区域大小改变时重新填充网格。"""
-        self._repopulate_folders_grid()
+        # 不再直接调用，而是通过定时器触发
+        self.resize_timer.start()
 
     def _on_images_scroll_area_resized(self):
         """当图片滚动区域大小改变时重新填充网格。"""
-        self._repopulate_images_grid()
+        # 不再直接调用，而是通过定时器触发
+        self.resize_timer.start()
 
     def load_screenshot_folders(self):
         # 清除现有数据
@@ -939,7 +956,7 @@ class ViewScreenshotsWindow(QMainWindow):
             folder_path = os.path.join(screenshot_base_dir, folder_name)
             self.folder_items_data.append((folder_name, folder_path))
         
-        self._repopulate_folders_grid() # 重新填充网格
+        self._repopulate_folders_grid() # 初始加载时立即填充网格
 
     def show_images_view(self, folder_path):
         self.current_folder_path = folder_path
@@ -959,7 +976,7 @@ class ViewScreenshotsWindow(QMainWindow):
             image_path = os.path.join(folder_path, image_name)
             self.image_items_data.append((image_name, image_path))
         
-        self._repopulate_images_grid() # 重新填充网格
+        self._repopulate_images_grid() # 初始加载时立即填充网格
 
     def open_image_fullscreen(self, image_path):
         # 清除旧的图片
@@ -995,13 +1012,10 @@ class ViewScreenshotsWindow(QMainWindow):
 
     def resizeEvent(self, event):
         """
-        当窗口大小改变时，重新布局网格。
+        当窗口大小改变时，启动或重置定时器，延迟重新布局网格。
         """
         super().resizeEvent(event)
-        if self.stacked_widget.currentWidget() == self.folders_view_widget:
-            self._repopulate_folders_grid()
-        elif self.stacked_widget.currentWidget() == self.images_view_widget:
-            self._repopulate_images_grid()
+        self.resize_timer.start() # 启动或重置定时器
 
 class F10CaptureApp(QMainWindow):
     def __init__(self):
