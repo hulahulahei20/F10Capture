@@ -720,8 +720,7 @@ class ViewScreenshotsWindow(QMainWindow):
             container_widget.setCursor(Qt.PointingHandCursor)
             container_widget.mousePressEvent = lambda event, path=folder_path: self.show_images_view(path)
 
-            container_widget.setMinimumSize(100, 100)
-            container_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            container_widget.setFixedSize(120, 120) # 设置固定大小，确保形状规则
 
             self.folders_grid_layout.addWidget(container_widget, row, col)
             
